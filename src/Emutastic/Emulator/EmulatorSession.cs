@@ -1048,7 +1048,7 @@ namespace Emutastic.Emulator
         // vsync; never runs the core. GlStats logged here = the TRUE display cadence.
         private void PresentThreadProc(System.Threading.ManualResetEventSlim ready)
         {
-            if (_toplevelMode) { PresentToplevelProc(ready); return; }
+            if (_toplevelMode && !OperatingSystem.IsMacOS()) { PresentToplevelProc(ready); return; }
             // X11/SDL fallback (no Wayland): run the SAME OSD loop over the SDL presenter. This
             // branch used to be a bare present loop — pure-X11 users (XFCE etc.) got a game window
             // with NO in-game UI at all (no status line, HUD pill, or cog menu).

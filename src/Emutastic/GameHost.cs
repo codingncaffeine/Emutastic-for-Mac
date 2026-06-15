@@ -106,8 +106,10 @@ namespace Emutastic
             // SDL3's default Xwayland/GLX fallback. The x11/GLX path does NOT get clean FIFO vsync here
             // (eglGetCurrentDisplay=null, swap can't be set to FIFO); native Wayland does (eglSwapInterval=1
             // succeeds). Only override on a Wayland session when the user hasn't forced a driver.
-            bool onWayland = string.Equals(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"), "wayland", StringComparison.OrdinalIgnoreCase)
-                || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"));
+            // macOS: no Wayland/X11/EGL — skip the whole Linux windowing block and land on plain SDL GL.
+            bool onWayland = !OperatingSystem.IsMacOS()
+                && (string.Equals(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"), "wayland", StringComparison.OrdinalIgnoreCase)
+                || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY")));
 
             // Cores that force a GLX/XWayland HW context (PPSSPP: glewInit needs a GLX dispatch table, see
             // PspHandler.ForceCompatibilityGlProfile) must keep their WHOLE present pipeline on XWayland/GLX.

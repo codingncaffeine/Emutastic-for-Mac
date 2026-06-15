@@ -15,6 +15,30 @@ namespace Emutastic.Platform
         const string GL = "libGL.so.1";
         const string EGL = "libEGL.so.1";
 
+        // macOS has no libGL.so.1 / libEGL.so.1. Map the fixed-function GL imports to Apple's
+        // OpenGL.framework (a 2.1-compat GL — exactly what GlPresenter's fixed-function quad and the
+        // Skia-OSD/deco draws use), and let EGL fail so GlPresenter's EGL probing cleanly falls back to
+        // SDL_GL_SwapWindow vsync pacing. SDL3 and everything else use default resolution (libSDL3.dylib).
+        private static IntPtr _macGl;
+        static Gl()
+        {
+            if (!OperatingSystem.IsMacOS()) return;
+            try
+            {
+                NativeLibrary.SetDllImportResolver(typeof(Gl).Assembly, static (name, asm, search) =>
+                {
+                    if (name == GL)
+                    {
+                        if (_macGl == IntPtr.Zero)
+                            NativeLibrary.TryLoad("/System/Library/Frameworks/OpenGL.framework/OpenGL", out _macGl);
+                        return _macGl;
+                    }
+                    return IntPtr.Zero;   // EGL → fail (no macOS EGL); SDL3/etc → default resolution
+                });
+            }
+            catch { /* a resolver is already registered (e.g. the Linux Wayland path) — leave it */ }
+        }
+
         // EGL swap-interval, called DIRECTLY on the current display. RetroArch's wayland_ctx paces vsync via
         // egl_set_swap_interval -> eglSwapInterval(dpy, 1); on native Wayland that is what makes Mesa's FIFO
         // swap actually block to vblank. SDL_GL_SetSwapInterval may not set this on the Wayland EGL surface
