@@ -36,7 +36,10 @@ namespace Emutastic.Services.ConsoleHandlers
 
         public override List<(string key, string label)> GetVisualOptions() => new()
         {
-            ("citra_resolution_factor", "Internal Resolution"),
+            // "(restart)": changing the internal resolution LIVE makes azahar re-allocate its (huge, at
+            // high factors) framebuffers mid-stream → fps dips. Set it, then restart the game and it's
+            // applied cleanly at load — locked 60 even at 10x. (Matches the N64/GameCube "(restart)" knobs.)
+            ("citra_resolution_factor", "Internal Resolution (restart)"),
             ("citra_texture_filter", "Texture Filter"),
         };
     }
