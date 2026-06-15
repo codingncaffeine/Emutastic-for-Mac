@@ -74,6 +74,20 @@
           DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 
+  <!-- libsnapvideo (macOS only): AVFoundation snap-video decoder (BGRA frames for the game-card
+       preview). System frameworks only — nothing bundled. Built from native/snapvideo/. -->
+  <Target Name="BuildSnapVideo" BeforeTargets="Build"
+          Condition="$([MSBuild]::IsOSPlatform('OSX'))"
+          Inputs="$(MSBuildProjectDirectory)/../../native/snapvideo/snapvideo.m;$(MSBuildProjectDirectory)/../../native/snapvideo/build.sh"
+          Outputs="$(MSBuildProjectDirectory)/../../native/snapvideo/libsnapvideo.dylib">
+    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/../../native/snapvideo/build.sh&quot;" />
+  </Target>
+  <Target Name="CopySnapVideo" AfterTargets="BuildSnapVideo;Build"
+          Condition="$([MSBuild]::IsOSPlatform('OSX')) And Exists('$(MSBuildProjectDirectory)/../../native/snapvideo/libsnapvideo.dylib')">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/../../native/snapvideo/libsnapvideo.dylib"
+          DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
   <ItemGroup>
     <!-- macOS port: released Avalonia 12.0.4 from nuget.org (no vendored feed). The Linux port
          pinned a vendored 12.1.999 (PR #20926) only for X11 drag-and-drop; macOS gets native DnD

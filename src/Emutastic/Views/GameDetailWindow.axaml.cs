@@ -38,6 +38,13 @@ public partial class GameDetailWindow : Window
     private IntPtr _videoBuffer;
     private bool _crossfadeDone;
 
+    // macOS native (AVFoundation) snap playback — used instead of LibVLC, which has no arm64 build.
+    // _snapLock guards the native handle + frame buffer so the background decode loop and OnClosed
+    // teardown are mutually exclusive (no use-after-free / no decode into a freed buffer).
+    private IntPtr _snapHandle;
+    private System.Threading.CancellationTokenSource? _snapCts;
+    private readonly object _snapLock = new();
+
     public GameDetailWindow() : this(new Game { Title = "Game", Console = "NES" }) { }
 
     public GameDetailWindow(Game game)
@@ -73,19 +80,29 @@ public partial class GameDetailWindow : Window
         _closed = true;
         _raRefreshCts?.Cancel();
 
+        _snapCts?.Cancel();
+
         if (_vlcPlayer != null)
         {
             try { _vlcPlayer.Stop(); _vlcPlayer.Dispose(); } catch { }
             _vlcPlayer = null;
         }
 
-        // The display callback posts to the dispatcher, so a queued blit can outlive
-        // Dispose. Null the guards BEFORE freeing the buffer so any late callback bails
-        // instead of memcpying into freed memory.
-        _videoBitmap = null;
-        var buf = _videoBuffer;
-        _videoBuffer = IntPtr.Zero;
-        if (buf != IntPtr.Zero) Marshal.FreeHGlobal(buf);
+        // Tear down the video buffer/bitmap (and the native snap decoder) under _snapLock so the
+        // background decode loop — which touches them only under the same lock — can't read freed
+        // memory or decode into a freed buffer. A queued blit checks the nulled guards and bails.
+        lock (_snapLock)
+        {
+            if (_snapHandle != IntPtr.Zero)
+            {
+                try { Platform.SnapVideoNative.snap_close(_snapHandle); } catch { }
+                _snapHandle = IntPtr.Zero;
+            }
+            _videoBitmap = null;
+            var buf = _videoBuffer;
+            _videoBuffer = IntPtr.Zero;
+            if (buf != IntPtr.Zero) Marshal.FreeHGlobal(buf);
+        }
 
         base.OnClosed(e);
     }
@@ -235,7 +252,11 @@ public partial class GameDetailWindow : Window
                                                _game.Console, _game.RomHash, romPath);
                 if (cached != null && !_closed)
                 {
-                    await PlaySnapVideoAsync(cached);
+                    // macOS has no usable LibVLC (arm64); decode the snap natively via AVFoundation.
+                    if (OperatingSystem.IsMacOS())
+                        await PlaySnapVideoNativeAsync(cached);
+                    else
+                        await PlaySnapVideoAsync(cached);
                     return;
                 }
             }
@@ -274,6 +295,103 @@ public partial class GameDetailWindow : Window
     {
         try { using var fs = System.IO.File.OpenRead(path); return Bitmap.DecodeToWidth(fs, width); }
         catch { return null; }
+    }
+
+    // macOS: play the snap via the native AVFoundation decoder (libsnapvideo). H.264 decode runs on a
+    // background task (never the UI thread); each frame is memcpy-blitted into the WriteableBitmap on
+    // the UI thread, looping when the clip ends. No LibVLC, no bundled libs.
+    private async Task PlaySnapVideoNativeAsync(string mp4Path)
+    {
+        int w = 0, h = 0; double fps = 0;
+        IntPtr handle = await Task.Run(() =>
+        {
+            try { return Platform.SnapVideoNative.snap_open(mp4Path, out w, out h, out fps); }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[GameDetail] snap_open failed: {ex.Message}"); return IntPtr.Zero; }
+        });
+        if (handle == IntPtr.Zero || w <= 0 || h <= 0)
+        {
+            if (handle != IntPtr.Zero) Platform.SnapVideoNative.snap_close(handle);
+            return;
+        }
+        if (_closed) { Platform.SnapVideoNative.snap_close(handle); return; }
+
+        int stride = w * 4;
+        lock (_snapLock)
+        {
+            if (_closed) { Platform.SnapVideoNative.snap_close(handle); return; }
+            if (_videoBuffer != IntPtr.Zero) Marshal.FreeHGlobal(_videoBuffer);
+            _videoBuffer = Marshal.AllocHGlobal(stride * h);
+            _videoBitmap = new WriteableBitmap(new PixelSize(w, h), new Vector(96, 96),
+                                               PixelFormat.Bgra8888, AlphaFormat.Opaque);
+            _snapHandle = handle;
+        }
+        Get<Image>("VideoImage").Source = _videoBitmap;
+
+        var cts = _snapCts = new System.Threading.CancellationTokenSource();
+        var token = cts.Token;
+        int frameMs = fps > 1 ? (int)Math.Round(1000.0 / fps) : 33;
+
+        _ = Task.Run(async () =>
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            long shown = 0;
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    int rc;
+                    // Decode (and any looping rewind) under the lock so OnClosed can't free the
+                    // buffer / close the handle mid-call.
+                    lock (_snapLock)
+                    {
+                        if (_snapHandle == IntPtr.Zero || _videoBuffer == IntPtr.Zero) break;
+                        rc = Platform.SnapVideoNative.snap_next_bgra(_snapHandle, _videoBuffer, stride * h);
+                        if (rc == 0) { Platform.SnapVideoNative.snap_rewind(_snapHandle); rc = -2; }
+                    }
+                    if (rc == -2) { shown = 0; sw.Restart(); continue; }   // looped
+                    if (rc < 0) break;
+
+                    Dispatcher.UIThread.Post(() => BlitSnapFrame(w, h, stride));
+                    shown++;
+                    long delay = shown * frameMs - sw.ElapsedMilliseconds;
+                    if (delay > 0) { try { await Task.Delay((int)Math.Min(delay, 1000), token); } catch { break; } }
+                }
+            }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[GameDetail] native snap loop ended: {ex.Message}"); }
+        }, token);
+    }
+
+    // Copy _videoBuffer (BGRA, width×height, src stride) into the WriteableBitmap and, on the first
+    // frame, reveal the video (crossfade out the cover art). Shared by the macOS native snap path.
+    private void BlitSnapFrame(int width, int height, int stride)
+    {
+        if (_closed || _videoBitmap == null || _videoBuffer == IntPtr.Zero) return;
+        using (var fb = _videoBitmap.Lock())
+        {
+            unsafe
+            {
+                byte* src = (byte*)_videoBuffer;
+                byte* dst = (byte*)fb.Address;
+                int dstStride = fb.RowBytes;
+                int rowBytes = Math.Min(stride, dstStride);
+                for (int y = 0; y < height; y++)
+                    Buffer.MemoryCopy(src + (long)y * stride, dst + (long)y * dstStride, dstStride, rowBytes);
+            }
+        }
+        Get<Image>("VideoImage").InvalidateVisual();
+
+        if (!_crossfadeDone)
+        {
+            _crossfadeDone = true;
+            Get<Image>("VideoImage").IsVisible = true;
+            Get<TextBlock>("ArtPlaceholderText").IsVisible = false;
+            var header = Get<Image>("HeaderImage");
+            header.Transitions ??= new Transitions
+            {
+                new DoubleTransition { Property = OpacityProperty, Duration = TimeSpan.FromMilliseconds(400) },
+            };
+            header.Opacity = 0;
+        }
     }
 
     // Play a ScreenScraper MP4 snap into VideoImage via LibVLC video callbacks.
