@@ -95,6 +95,12 @@ namespace Emutastic.Services
                     .Select(f => Path.ChangeExtension(f, AppPaths.CoreExt)!).ToArray();
         }
 
+        /// <summary>Converts a canonical ".so" core filename to this platform's filename
+        /// (.dylib on macOS, .dll on Windows; unchanged on Linux) — for the few places that
+        /// hardcode a core name (arcade routing, the arcade DB migration).</summary>
+        public static string PlatformCoreName(string soName) =>
+            AppPaths.CoreExt == ".so" ? soName : Path.ChangeExtension(soName, AppPaths.CoreExt)!;
+
         // Region-specific BIOS requirements for consoles where the BIOS must match the game region.
         // Key: console tag → region → candidate filenames (any one is sufficient).
         // "World" is handled by accepting any region's BIOS.

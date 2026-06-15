@@ -84,7 +84,9 @@ namespace Emutastic.Services
         public static CheatSupportInfo Lookup(string corePathOrName)
         {
             if (string.IsNullOrEmpty(corePathOrName)) return new();
-            string filename = System.IO.Path.GetFileName(corePathOrName);
+            // The matrix is keyed by canonical ".so" names; normalize the platform extension
+            // (.dylib on macOS, .dll on Windows) so the lookup matches the actual core file.
+            string filename = System.IO.Path.ChangeExtension(System.IO.Path.GetFileName(corePathOrName), ".so");
             return _matrix.TryGetValue(filename, out var info) ? info : new();
         }
     }

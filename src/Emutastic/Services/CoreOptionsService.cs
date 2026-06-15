@@ -40,6 +40,7 @@ namespace Emutastic.Services
             string name = dllName
                 .Replace("_libretro.so", "", StringComparison.OrdinalIgnoreCase)
                 .Replace("_libretro.dll", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("_libretro.dylib", "", StringComparison.OrdinalIgnoreCase)
                 .Replace("_libretro", "", StringComparison.OrdinalIgnoreCase);
             return name switch
             {

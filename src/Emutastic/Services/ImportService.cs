@@ -948,7 +948,7 @@ namespace Emutastic.Services
                 string pathHint = (sourcePath ?? romPath).ToLowerInvariant();
                 if (System.Text.RegularExpressions.Regex.IsMatch(pathHint, @"(^|[\\/_-])mame([\\/_-]|$|2003|0\.)"))
                 {
-                    preferredCore = "mame2003_plus_libretro.so";
+                    preferredCore = CoreManager.PlatformCoreName("mame2003_plus_libretro.so");
                 }
                 else
                 {

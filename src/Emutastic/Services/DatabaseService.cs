@@ -284,13 +284,15 @@ namespace Emutastic.Services
             try
             {
                 var routeFix = connection.CreateCommand();
+                string mameCore = CoreManager.PlatformCoreName("mame2003_plus_libretro.so");
                 routeFix.CommandText = @"
                     UPDATE Games
-                    SET PreferredCore = 'mame2003_plus_libretro.so'
+                    SET PreferredCore = @mame
                     WHERE Console = 'Arcade'
                       AND (LOWER(RomPath) LIKE '%mame2003plus%'
                            OR LOWER(RomPath) LIKE '%mame2003-plus%')
-                      AND PreferredCore <> 'mame2003_plus_libretro.so';";
+                      AND PreferredCore <> @mame;";
+                routeFix.Parameters.AddWithValue("@mame", mameCore);
                 int rowsFixed = routeFix.ExecuteNonQuery();
                 if (rowsFixed > 0)
                     System.Diagnostics.Trace.WriteLine(
