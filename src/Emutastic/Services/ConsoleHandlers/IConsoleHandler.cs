@@ -124,6 +124,10 @@ namespace Emutastic.Services.ConsoleHandlers
         /// </summary>
         void PrepareSaveDirectory(string saveDir);
 
+        /// <summary>Stage any console-specific BIOS/file layout under the system directory before the
+        /// core loads (e.g. CD-i stages the BIOS into same_cdi/bios/). Default no-op.</summary>
+        void PrepareSystemDirectory(string systemDir);
+
         /// <summary>
         /// When true, the readback path reads the entire FBO (fboWidth × fboHeight) rather
         /// than the dimensions reported by retro_video_refresh. Use for cores like vecx that

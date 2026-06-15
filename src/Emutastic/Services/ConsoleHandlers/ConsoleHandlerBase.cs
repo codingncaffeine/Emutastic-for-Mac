@@ -72,6 +72,10 @@ namespace Emutastic.Services.ConsoleHandlers
             => defaultDir;
 
         public virtual void PrepareSaveDirectory(string saveDir) { }
+
+        /// <summary>Stage any console-specific BIOS/file layout under the system directory before the
+        /// core loads (e.g. CD-i's SAME CDi reads its BIOS from system/same_cdi/bios/). Default no-op.</summary>
+        public virtual void PrepareSystemDirectory(string systemDir) { }
         public virtual bool UseFullFboReadback => false;
         public virtual bool UseGLOverlay => false;
         public virtual bool UseDefaultFramebuffer => false;

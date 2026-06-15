@@ -88,6 +88,20 @@
           DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 
+  <!-- libretrolog (macOS only): formats the libretro variadic log callback in native C so core
+       logs keep their arguments on arm64. Built from native/retrolog/. -->
+  <Target Name="BuildRetroLog" BeforeTargets="Build"
+          Condition="$([MSBuild]::IsOSPlatform('OSX'))"
+          Inputs="$(MSBuildProjectDirectory)/../../native/retrolog/retrolog.c;$(MSBuildProjectDirectory)/../../native/retrolog/build.sh"
+          Outputs="$(MSBuildProjectDirectory)/../../native/retrolog/libretrolog.dylib">
+    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/../../native/retrolog/build.sh&quot;" />
+  </Target>
+  <Target Name="CopyRetroLog" AfterTargets="BuildRetroLog;Build"
+          Condition="$([MSBuild]::IsOSPlatform('OSX')) And Exists('$(MSBuildProjectDirectory)/../../native/retrolog/libretrolog.dylib')">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/../../native/retrolog/libretrolog.dylib"
+          DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
   <ItemGroup>
     <!-- macOS port: released Avalonia 12.0.4 from nuget.org (no vendored feed). The Linux port
          pinned a vendored 12.1.999 (PR #20926) only for X11 drag-and-drop; macOS gets native DnD

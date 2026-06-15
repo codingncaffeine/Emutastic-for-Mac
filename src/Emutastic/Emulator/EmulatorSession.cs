@@ -66,6 +66,19 @@ namespace Emutastic.Emulator
         // Persistent ANSI pointers handed to the core for its lifetime (freed in Dispose).
         private IntPtr _systemDirPtr, _saveDirPtr, _coreAssetsDirPtr;
         private readonly retro_log_printf_t _logCb; // kept alive; handed to the core via GET_LOG_INTERFACE
+        // macOS: the core's variadic log is formatted in native C (libretrolog) and the finished
+        // string arrives here — keeps the delegate alive for the process and routes to Trace.
+        private static readonly Platform.RetroLogNative.Sink _nativeLogSink = (level, msg) =>
+        {
+            try
+            {
+                string m = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(msg) ?? "";
+                string[] labels = { "DEBUG", "INFO", "WARN", "ERROR" };
+                string tag = level >= 0 && level < labels.Length ? labels[level] : $"L{level}";
+                Trace.WriteLine($"[CORE {tag}] {m.TrimEnd('\n', '\r')}");
+            }
+            catch { /* never let logging throw back into native code */ }
+        };
         private int _pixelFormat = 0; // 0=0RGB1555, 1=XRGB8888, 2=RGB565
         private double _fps = 60.0, _sampleRate = 44100;
 
@@ -523,6 +536,7 @@ namespace Emutastic.Emulator
                 // core-assets default to the core's own folder.
                 string coreDir = System.IO.Path.GetDirectoryName(_corePath) ?? "";
                 string sysDir = _handler.ResolveSystemDirectory(AppPaths.GetFolder("System"), coreDir);
+                _handler.PrepareSystemDirectory(sysDir);   // stage console-specific BIOS layout (e.g. CD-i → same_cdi/bios)
                 string saveDir = AppPaths.GetFolder("Saves");
                 _handler.PrepareSaveDirectory(saveDir);   // create any console-specific subdirs (e.g. dc/)
                 // Battery save lives next to the ROM's name in the Saves dir (RetroArch's <rom>.srm scheme).
@@ -1997,7 +2011,19 @@ namespace Emutastic.Emulator
                     return true;
                 case ENV_GET_LOG_INTERFACE:
                     // retro_log_callback is a single function-pointer field; hand the core our logger.
-                    if (data != IntPtr.Zero) Marshal.WriteIntPtr(data, Marshal.GetFunctionPointerForDelegate(_logCb));
+                    // macOS: give the core the native C bridge (vsnprintf), which formats the variadic
+                    // log correctly on arm64 and forwards finished strings to _nativeLogSink. Other
+                    // platforms use the managed delegate (x86-64 reads the register varargs fine).
+                    if (data != IntPtr.Zero)
+                    {
+                        if (OperatingSystem.IsMacOS())
+                        {
+                            Platform.RetroLogNative.retrolog_set_sink(_nativeLogSink);
+                            Marshal.WriteIntPtr(data, Platform.RetroLogNative.retrolog_get_callback());
+                        }
+                        else
+                            Marshal.WriteIntPtr(data, Marshal.GetFunctionPointerForDelegate(_logCb));
+                    }
                     return true;
                 case ENV_GET_RUMBLE_INTERFACE:
                     // retro_rumble_interface is a single function-pointer field (see _rumbleCb).
