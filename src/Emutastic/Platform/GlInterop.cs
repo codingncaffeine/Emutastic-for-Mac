@@ -76,6 +76,7 @@ namespace Emutastic.Platform
         [DllImport(SDL)] public static extern IntPtr SDL_CreateWindow([MarshalAs(UnmanagedType.LPUTF8Str)] string title, int w, int h, ulong flags);
         [DllImport(SDL)] public static extern void SDL_DestroyWindow(IntPtr window);
         [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_RaiseWindow(IntPtr window);
+        [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_SetHint([MarshalAs(UnmanagedType.LPUTF8Str)] string name, [MarshalAs(UnmanagedType.LPUTF8Str)] string value);
         [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_ShowWindow(IntPtr window);
         [DllImport(SDL)] public static extern IntPtr SDL_GL_CreateContext(IntPtr window);
         [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_GL_DestroyContext(IntPtr ctx);

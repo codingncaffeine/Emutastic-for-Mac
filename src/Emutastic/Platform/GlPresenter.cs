@@ -133,6 +133,10 @@ namespace Emutastic.Platform
         private GlPresenter(int width, int height, bool fullscreen)
         {
             if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) throw new InvalidOperationException($"SDL_InitSubSystem(VIDEO): {SdlError()}");
+            // macOS: by default the click that re-focuses an inactive window is swallowed by the OS, so
+            // the first click on the game window just activates it and you have to click the cog/menus a
+            // second time. Let that focusing click through so a single click always registers.
+            if (OperatingSystem.IsMacOS()) SDL_SetHint("SDL_MOUSE_FOCUS_CLICKTHROUGH", "1");
             SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
             SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY); // fixed-function quad
             SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);

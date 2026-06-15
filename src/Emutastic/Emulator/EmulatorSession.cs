@@ -1402,6 +1402,22 @@ namespace Emutastic.Emulator
                     return;
                 }
                 if (button != 0 || !down) return;
+
+                // This handler runs from PumpEvents at the START of the frame, but hover / titleHover /
+                // hudVisible are only refreshed at the END of the previous frame. So a click made right
+                // after the pointer moved onto a control — or once the HUD had faded — was evaluated
+                // against stale state and dropped, which is the "cog/menus unresponsive, have to click
+                // twice" bug. A click is explicit interaction: wake the HUD and re-run the hit-tests
+                // against the CURRENT pointer so a single click always acts on what's under it now.
+                hudHideAtMs = clock.Elapsed.TotalMilliseconds + HudTimeoutMs;
+                hudVisible = true;
+                {
+                    _wlTop!.GetSize(out int chw, out int chh);
+                    hover = _wlTop.MouseInside ? GlOsd.HitTest(chw, chh, _wlTop.MouseX, _wlTop.MouseY) : -1;
+                    titleHover = (_wlTop.HasWindowChrome && _wlTop.MouseInside)
+                        ? GlOsd.TitleHitTest(chw, winStyle, _wlTop.MouseX, _wlTop.MouseY) : -1;
+                }
+
                 // 0a) Open cog menu: enabled-row clicks act, panel clicks swallow, elsewhere closes
                 //     (upstream collapses OverlayMenu the same way).
                 if (cogMenu != null && titleHover < 0)
