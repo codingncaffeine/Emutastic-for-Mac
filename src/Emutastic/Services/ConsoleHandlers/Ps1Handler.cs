@@ -26,15 +26,12 @@ namespace Emutastic.Services.ConsoleHandlers
                 core.SetControllerPortDevice(port, RETRO_DEVICE_JOYPAD);
         }
 
-        // Request OpenGL Core context for Beetle PSX HW. The Vulkan path was
-        // tried first but Beetle PSX HW's v1 create_device hands back a device
-        // missing the features parallel-psx later dispatches against, producing
-        // NULL-IP AVs in the render thread. OpenGL has a much simpler init
-        // contract (context_reset gets a current GL context; the core renders
-        // through it directly) and our OpenGL plumbing is mature from N64,
-        // Dolphin, and 3DS. If the user has the SW mednafen_psx_libretro
-        // selected instead, the core ignores HW context negotiation entirely
-        // and runs as software — nothing to harm there.
+        // OpenGL Core (3) on ALL platforms. Unlike N64/GameCube/3DS/Dreamcast — whose GL renderers are dead
+        // or degraded on Apple, forcing the Vulkan path — Beetle PSX HW's GL renderer works great on Apple
+        // GL 4.1 (verified: SOTN locked 60fps). Its Vulkan path was retried after the loader switch: the
+        // handshake fully succeeds (Vulkan accepted, interface handed over, pipelines created) but it
+        // produces ZERO frames then exits — the core's create_device builds a device missing features
+        // parallel-psx needs (not something our frontend controls). GL is solid, so PS1 stays on GL.
         public override int PreferredHwContext => 3; // RETRO_HW_CONTEXT_OPENGL_CORE
 
         // Use the GL overlay window for direct GPU→GPU presentation. Without
@@ -67,10 +64,8 @@ namespace Emutastic.Services.ConsoleHandlers
 
         public override Dictionary<string, string> GetDefaultCoreOptions() => new()
         {
-            // Force the OpenGL HW renderer to match our negotiated GL context.
-            // `hardware` would let the core pick either backend; pinning to
-            // `hardware_gl` avoids the core silently selecting Vulkan and
-            // failing back to software when our context isn't compatible.
+            // GL HW renderer (see PreferredHwContext note — Beetle PSX HW's GL path works on Apple; its
+            // Vulkan path renders no frames). `hardware` (auto) avoided so the core can't fall to software.
             ["beetle_psx_hw_renderer"] = "hardware_gl",
             // software_fb left at core default (enabled). Some games (Spyro,
             // FF8 battles, etc.) read/write the PS1 framebuffer directly for
