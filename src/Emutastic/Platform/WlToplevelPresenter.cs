@@ -25,19 +25,28 @@ namespace Emutastic.Platform
         // (dev). Registered once; harmless if the OS loader would have found it on LD_LIBRARY_PATH anyway.
         static WlToplevelPresenter()
         {
+          try
+          {
             NativeLibrary.SetDllImportResolver(typeof(WlToplevelPresenter).Assembly, (name, asm, search) =>
             {
                 if (name != LIB) return IntPtr.Zero;
+                // macOS ships libwlpresent.dylib built from native/machwgl (CGL HW-render only —
+                // the Wayland present functions are never P/Invoked on macOS); Linux ships the .so.
+                string file = OperatingSystem.IsMacOS() ? "libwlpresent.dylib" : "libwlpresent.so";
+                string devSub = OperatingSystem.IsMacOS() ? "machwgl" : "wlpresent";
                 foreach (var cand in new[]
                 {
-                    System.IO.Path.Combine(AppContext.BaseDirectory, "libwlpresent.so"),   // shipped beside the app (build copies it here)
-                    System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "native", "wlpresent", "libwlpresent.so"),  // dev: repo source tree
+                    System.IO.Path.Combine(AppContext.BaseDirectory, file),   // shipped beside the app (build copies it here)
+                    System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "native", devSub, file),  // dev: repo source tree
                 })
                 {
                     if (System.IO.File.Exists(cand) && NativeLibrary.TryLoad(cand, out var lib)) return lib;
                 }
                 return IntPtr.Zero;   // let the default loader try (LD_LIBRARY_PATH / system paths)
             });
+          }
+          catch { /* macOS: GlInterop already registered the assembly's resolver (and it handles
+                     "wlpresent" too); only one resolver is allowed per assembly, so this is a no-op. */ }
         }
 
         [DllImport(LIB)] static extern IntPtr wlp_create(int w, int h, [MarshalAs(UnmanagedType.LPUTF8Str)] string title);

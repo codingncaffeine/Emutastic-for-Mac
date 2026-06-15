@@ -138,6 +138,15 @@ namespace Emutastic.Emulator
         // ── GL hardware render for 3D cores (Phase 1). SET_HW_RENDER hands us a retro_hw_render_callback;
         //    we render the core into libwlpresent's offscreen FBO and read it back to the normal frame. ──
         const uint ENV_SET_HW_RENDER = 14;
+        // Vulkan HW-render (numbers are the base after the EXPERIMENTAL mask): the core fetches our
+        // Vulkan interface via GET_HW_RENDER_INTERFACE (41|EXPERIMENTAL) after context_reset, and may
+        // hand us a device-creation negotiation interface via 43|EXPERIMENTAL.
+        const uint ENV_GET_HW_RENDER_INTERFACE = 41;
+        const uint ENV_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE = 43;
+        // 73|EXPERIMENTAL: the core asks which negotiation-interface types we support BEFORE registering
+        // its own via 43. ParaLLEl-RDP only hands us its device-creation interface if we answer here, so
+        // we must reply with the Vulkan bit set (bit RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN=0).
+        const uint ENV_GET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_SUPPORT = 73;
         static readonly IntPtr RETRO_HW_FRAME_BUFFER_VALID = (IntPtr)(-1);   // Video_cb data sentinel for HW frames
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void HwContextResetFn();
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate UIntPtr HwGetFramebufferFn();
@@ -410,7 +419,13 @@ namespace Emutastic.Emulator
             if (!down) return;
             switch (scancode)
             {
-                case SC_ESCAPE: _running = false; break;
+                case SC_ESCAPE:
+                    // Esc backs OUT of fullscreen to windowed (what users expect) rather than quitting.
+                    // Query the live SDL flag so it also catches macOS native (green-button) fullscreen,
+                    // not just our F11 toggle. Only quit when already windowed.
+                    if (_gl != null && _gl.IsFullscreen) { _glFullscreen = false; _gl.SetFullscreen(false); }
+                    else _running = false;
+                    break;
                 case SC_F11:    _glFullscreen = !_glFullscreen; _gl?.SetFullscreen(_glFullscreen); break;
                 case SC_P:      _paused = !_paused; break;
                 case SC_F5:     RequestSaveState("Quick Save"); break;   // upstream's F5 quick save
@@ -594,8 +609,12 @@ namespace Emutastic.Emulator
                 var geo = _core.AvInfo.geometry;
                 DisplayAspectRatio = _handler.GetDisplayAspectRatio(geo.base_width, geo.base_height, geo.aspect_ratio);
                 // 3D cores: now that av_info (max geometry) is known, create the GL HW context + FBO and fire
-                // context_reset, on this (emu) thread so the context is current for every retro_run.
-                InitHwRenderContext();
+                // context_reset, on the thread that runs retro_run so the context is current for every frame.
+                // On macOS the emu loop runs on the "EmuLoop" WORKER (present owns main), and the offscreen
+                // CGL context must be created + current on THAT worker — and NOT on main, or it blocks the
+                // SDL present. So defer it into the worker (RunDecoupled macOS branch). Linux runs the emu
+                // loop inline on this thread, so create it here.
+                if (!OperatingSystem.IsMacOS()) InitHwRenderContext();
                 ReloadCheats();   // per-game cheats apply from frame one (no-op without --game-id)
                 _sampleRate = _core.AvInfo.timing.sample_rate > 0 ? _core.AvInfo.timing.sample_rate : 44100;
                 // DIAGNOSTIC ONLY (EMUTASTIC_NO_AUDIO=1): skip opening the sound device to test whether the
@@ -629,6 +648,17 @@ namespace Emutastic.Emulator
             }
         }
 
+        // Pre-fill the audio buffer so it doesn't underrun at startup (underrun = crackle + a catch-up
+        // stutter). Runs retro_run un-paced until the cushion fills, BOUNDED (≤60 ≈ 1s) and only with a
+        // working audio device so a silent intro / no-audio device can't fast-forward seconds on boot.
+        // Must run on the thread that owns retro_run (and, for HW cores, the GL context).
+        private void PrefillAudio()
+        {
+            const double prefillMs = 150;
+            for (int guard = 0; _running && _audio != null && _audio.IsOpen && _audio.QueuedMs < prefillMs && guard < 60; guard++)
+                try { _core!.Run(); } catch (Exception ex) { Trace.WriteLine($"[Emu] retro_run threw (prefill): {ex}"); break; }
+        }
+
         private void RunLoop()
         {
             double targetFrameMs = 1000.0 / _fps;
@@ -637,12 +667,11 @@ namespace Emutastic.Emulator
             // Thread.Sleep jitters → chunky 60fps, so we sleep most of the budget then SPIN the last ms.
             const double prefillMs = 150, lowWatermark = 80, backpressureMs = 300;
 
-            // Pre-fill the audio buffer so it doesn't underrun at startup (underrun = crackle + a
-            // catch-up stutter as the loop races to refill). Run frames un-paced until the cushion
-            // fills, but BOUNDED (≤60 ≈ 1s) and only with a working audio device so a silent intro /
-            // no-audio device can't fast-forward seconds of game on boot.
-            for (int guard = 0; _running && _audio != null && _audio.IsOpen && _audio.QueuedMs < prefillMs && guard < 60; guard++)
-                try { _core!.Run(); } catch (Exception ex) { Trace.WriteLine($"[Emu] retro_run threw (prefill): {ex}"); break; }
+            // Pre-fill the audio buffer so it doesn't underrun at startup. The prefill is retro_run too,
+            // so on macOS (emu loop on a worker, present on main) it MUST run on the worker — not here on
+            // main — or a HW core would touch GL before its context exists on the worker (segfault). The
+            // macOS RunDecoupled branch calls PrefillAudio() on the worker after creating the HW context.
+            if (!OperatingSystem.IsMacOS()) PrefillAudio();
 
             // RetroAchievements (A8c): login + identify on a worker thread so a slow RA
             // server can never delay first frame. RaDoFrame() no-ops until the game loads.
@@ -909,12 +938,17 @@ namespace Emutastic.Emulator
                     ready.Wait();   // wait until the present (main) has created — or failed to create — the GL window
                     if (_gl == null && _wlTop == null)
                     { Trace.WriteLine("[Emu] decoupled(macOS): GL present failed to start; stopping"); _running = false; return; }
+                    // 3D cores: create the offscreen CGL HW-render context HERE, on the worker, so it's
+                    // current on the thread that runs retro_run (and off the main thread, which owns the SDL
+                    // present). No-op for software cores (_hwRenderActive false until SET_HW_RENDER accepted).
+                    InitHwRenderContext();
+                    PrefillAudio();   // prefill on the worker (it's retro_run; HW cores need the context here)
                     RunDecoupledEmuLoop(targetFrameMs, cushionMs);
                     _running = false;
                     SaveSram();   // flush battery save on the core thread, core still loaded
                     // HW-render teardown on the core thread (where the context is current). Software cores
                     // (the macOS-supported set) never set _hwRenderActive, so this is a no-op for them.
-                    if (_hwRenderActive) { try { Platform.HwGlContext.Destroy(); } catch { } _hwRenderActive = false; }
+                    if (_hwRenderActive) { try { if (_hwCtxType == 6) Platform.HwVkContext.Destroy(); else Platform.HwGlContext.Destroy(); } catch { } _hwRenderActive = false; }
                 }) { IsBackground = true, Name = "EmuLoop" };
                 _thread = coreThread;   // so Dispose()'s join + use-after-free guard covers the core worker
                 coreThread.Start();
@@ -936,7 +970,7 @@ namespace Emutastic.Emulator
             // Tear down the HW-render context on THIS (emu) thread, where it's current. We deliberately do
             // NOT call the core's context_destroy (mupen/PPSSPP run async cleanup that crashes if we do —
             // per the per-core quirks); just drop our EGL context + FBO.
-            if (_hwRenderActive) { try { Platform.HwGlContext.Destroy(); } catch { } _hwRenderActive = false; }
+            if (_hwRenderActive) { try { if (_hwCtxType == 6) Platform.HwVkContext.Destroy(); else Platform.HwGlContext.Destroy(); } catch { } _hwRenderActive = false; }
         }
 
         // The decoupled emulator core loop (the heavy work): runs the core, paces by audio, services
@@ -1087,10 +1121,11 @@ namespace Emutastic.Emulator
                     string hwRb = "";
                     if (_hwRenderActive)
                     {
-                        // issue = glReadPixels enqueue (big ⇒ driver syncing on the FBO), map = PBO map
-                        // wait + copy (big ⇒ DMA not done / slow PCIe copy). Both 0 ⇒ sync fallback path.
-                        var (issueMs, mapMs, mapcallMs, copyMs) = Platform.HwGlContext.ReadbackTimes();
-                        hwRb = $" hwReadback={_hwReadbackMs:F2}ms(issue={issueMs:F2} map={mapMs:F2}=sync{mapcallMs:F2}+copy{copyMs:F2})";
+                        // issue = readback enqueue, map = copy. (GL splits map into sync+copy; Vulkan reports issue only.)
+                        double issueMs, mapMs;
+                        if (_hwCtxType == 6) (issueMs, mapMs) = Platform.HwVkContext.ReadbackTimes();
+                        else { var t = Platform.HwGlContext.ReadbackTimes(); issueMs = t.Item1; mapMs = t.Item2; }
+                        hwRb = $" hwReadback={_hwReadbackMs:F2}ms(issue={issueMs:F2} map={mapMs:F2})";
                     }
                     Trace.WriteLine($"[Emu] DECOUPLED emu={_frameMsEma:F2}ms(~{fps:F1}fps) target={targetFrameMs:F1}ms coreRun={_coreRunMsEma:F2}ms audioAdded={_audioAddedMsEma:F2}ms paceWait={_paceWaitMsEma:F1}ms cushionWait={_cushionWaitMsEma:F1}ms DRC q={qms:F0}ms ratio={ratio:F5} underruns={underruns}{hwRb} vid(valid={_vidValid} dupe={_vidDupes})");
                 }
@@ -1757,7 +1792,8 @@ namespace Emutastic.Emulator
                 // EMUTASTIC_FULLRES_READBACK=1 keeps full-internal-res readback for quality recording).
                 if (_hwRenderActive && !FullresReadback && (ww != _lastTargetW || wh != _lastTargetH))
                 {
-                    Platform.HwGlContext.SetPresentTarget(ww, wh);
+                    if (_hwCtxType == 6) Platform.HwVkContext.SetPresentTarget(ww, wh);
+                    else                 Platform.HwGlContext.SetPresentTarget(ww, wh);
                     _lastTargetW = ww; _lastTargetH = wh;
                 }
                 hudVisible = IsPaused || nowMs < hudHideAtMs || cogMenu != null;   // cog menu pins the pill
@@ -2058,6 +2094,24 @@ namespace Emutastic.Emulator
                     return true;
                 case ENV_SET_HW_RENDER:
                     return HandleSetHwRender(data);
+                case ENV_GET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_SUPPORT:
+                    // Reply with the bitmask of negotiation-interface types we support: Vulkan = bit 0.
+                    if (data != IntPtr.Zero) { Marshal.WriteInt32(data, 1 /* 1<<RETRO_HW_..._VULKAN(0) */); Trace.WriteLine("[Emu] negotiation-interface support queried → Vulkan"); return true; }
+                    return false;
+                case ENV_GET_HW_RENDER_INTERFACE:
+                    // Vulkan cores fetch our retro_hw_render_interface_vulkan here (after context_reset).
+                    if (_hwCtxType == 6 && _hwRenderActive && data != IntPtr.Zero)
+                    {
+                        Marshal.WriteIntPtr(data, Platform.HwVkContext.InterfacePtr());
+                        Trace.WriteLine("[Emu] GET_HW_RENDER_INTERFACE → handed core our Vulkan interface");
+                        return true;
+                    }
+                    return false;
+                case ENV_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE:
+                    // Vulkan: the core gives us its device-creation interface; hand it to the shim so
+                    // InitHwRenderContext can let the core create the device with its required features.
+                    if (data != IntPtr.Zero) { try { Platform.HwVkContext.SetNegotiation(data); } catch { } Trace.WriteLine("[Emu] negotiation interface registered by core"); return true; }
+                    return false;
                 case ENV_GET_VARIABLE:
                     return HandleGetVariable(data);
                 case 36: // RETRO_ENVIRONMENT_SET_MEMORY_MAPS (const retro_memory_map*)
@@ -2233,10 +2287,11 @@ namespace Emutastic.Emulator
         {
             if (data == IntPtr.Zero) return false;
             int ctxType = Marshal.ReadInt32(data, 0);
-            if (ctxType != 1 && ctxType != 2 && ctxType != 3 && ctxType != 4)
+            // 1=OPENGL 2=GLES2 3=OPENGL_CORE 4=GLES3 6=VULKAN. macOS accepts GL (CGL) + Vulkan (MoltenVK).
+            if (ctxType != 1 && ctxType != 2 && ctxType != 3 && ctxType != 4 && ctxType != 6)
             {
-                Trace.WriteLine($"[Emu] SET_HW_RENDER context_type={ctxType} not supported yet (GL only in phase 1) — declining");
-                return false;   // Vulkan(6)/others: phase 2
+                Trace.WriteLine($"[Emu] SET_HW_RENDER context_type={ctxType} not supported — declining");
+                return false;
             }
             _hwCtxType = ctxType;
             _hwDepth   = Marshal.ReadByte(data, 32) != 0;
@@ -2248,7 +2303,15 @@ namespace Emutastic.Emulator
             IntPtr destroyPtr = Marshal.ReadIntPtr(data, 48);
             _hwContextReset   = resetPtr   != IntPtr.Zero ? Marshal.GetDelegateForFunctionPointer<HwContextResetFn>(resetPtr)   : null;
             _hwContextDestroy = destroyPtr != IntPtr.Zero ? Marshal.GetDelegateForFunctionPointer<HwContextResetFn>(destroyPtr) : null;
-            // Hand the core our callbacks (keep the delegates alive as fields so the pointers stay valid).
+            if (ctxType == 6)
+            {
+                // Vulkan: the core fetches our retro_hw_render_interface_vulkan via GET_HW_RENDER_INTERFACE
+                // after context_reset; get_current_framebuffer/get_proc_address are GL-only (leave at zero).
+                _hwRenderActive = true;
+                Trace.WriteLine($"[Emu] SET_HW_RENDER VULKAN accepted: v{_hwMajor}.{_hwMinor} depth={_hwDepth} stencil={_hwStencil}");
+                return true;
+            }
+            // GL: hand the core our offscreen FBO + a symbol resolver (keep the delegates alive as fields).
             _hwGetFb   = () => (UIntPtr)Platform.HwGlContext.Fbo();
             _hwGetProc = sym => Platform.HwGlContext.Proc(sym);
             Marshal.WriteIntPtr(data, 16, Marshal.GetFunctionPointerForDelegate(_hwGetFb));
@@ -2266,6 +2329,24 @@ namespace Emutastic.Emulator
             var geo = _core!.AvInfo.geometry;
             int maxW = (int)Math.Max(geo.max_width, geo.base_width);
             int maxH = (int)Math.Max(geo.max_height, geo.base_height);
+
+            if (_hwCtxType == 6)
+            {
+                // Vulkan (MoltenVK): we create the instance; the core's negotiation interface (handed to
+                // the shim in the env-43 handler) creates the device with its features. No "make current".
+                if (!Platform.HwVkContext.Init(_hwCtxType, _hwMajor, _hwMinor, _hwDepth, _hwStencil, maxW, maxH))
+                {
+                    Trace.WriteLine("[Emu] HW-render Vulkan context init FAILED — 3D core will not render");
+                    _hwRenderActive = false;
+                    return;
+                }
+                int vkBytes = Math.Max(1, maxW * maxH * 4);
+                _hwBufA = new byte[vkBytes]; _hwBufB = new byte[vkBytes];
+                Trace.WriteLine($"[Emu] HW-render Vulkan ready ({maxW}x{maxH}): {Platform.HwVkContext.Info()}; calling context_reset");
+                try { _hwContextReset?.Invoke(); } catch (Exception ex) { Trace.WriteLine($"[Emu] Vulkan context_reset threw: {ex.Message}"); }
+                return;
+            }
+
             // GLEW-based cores (PPSSPP) can't init on our surfaceless EGL contexts at all:
             // glewInit()'s X11 build requires a GLX display, and it also rejects core
             // profiles. Give them a legacy GLX compat context (via XWayland) instead —
@@ -3470,12 +3551,21 @@ namespace Emutastic.Emulator
                 System.Threading.Interlocked.Increment(ref _vidValid);
                 if (_hwBufA != null && _hwBufB != null)
                 {
+                    // Grow the double-buffer if the core's frame exceeds the init-time max geometry. ParaLLEl-RDP
+                    // upscaling (2x/4x/8x) and cores that under-report max_width/height both produce frames bigger
+                    // than the buffers sized in InitHwRenderContext; without this the native readback (which writes
+                    // width*height*4 bytes unconditionally) would overrun them. Grows only — rare, never shrinks.
+                    int needBytes = (int)width * (int)height * 4;
+                    if (_hwBufA.Length < needBytes) { _hwBufA = new byte[needBytes]; _hwBufB = new byte[needBytes]; }
                     // TRUE double-buffer: always read into the buffer the present thread is NOT holding,
                     // so it can't copy a half-written frame (the transparent-flash cause). Async PBO readback
                     // returns the PREVIOUS frame + its dims (ow/oh) — present those, not the current cb dims.
                     byte[] back = ReferenceEquals(_frame, _hwBufA) ? _hwBufB : _hwBufA;
                     long t0 = Stopwatch.GetTimestamp();
-                    bool ok = Platform.HwGlContext.Readback(back, (int)width, (int)height, _hwBottomLeft, out int ow, out int oh);
+                    int ow, oh;
+                    bool ok = _hwCtxType == 6
+                        ? Platform.HwVkContext.Readback(back, (int)width, (int)height, _hwBottomLeft, out ow, out oh)
+                        : Platform.HwGlContext.Readback(back, (int)width, (int)height, _hwBottomLeft, out ow, out oh);
                     _hwReadbackMs += 0.05 * ((Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency - _hwReadbackMs);
                     if (ok && ow > 0 && oh > 0)
                     {

@@ -102,6 +102,39 @@
           DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 
+  <!-- libwlpresent.dylib (macOS only): the CGL offscreen GL hardware-render context for 3D cores
+       (N64 etc.), built from native/machwgl/. Same wlp_hw_* ABI as the Linux libwlpresent.so. -->
+  <Target Name="BuildMacHwGl" BeforeTargets="Build"
+          Condition="$([MSBuild]::IsOSPlatform('OSX'))"
+          Inputs="$(MSBuildProjectDirectory)/../../native/machwgl/machwgl.c;$(MSBuildProjectDirectory)/../../native/machwgl/build.sh"
+          Outputs="$(MSBuildProjectDirectory)/../../native/machwgl/libwlpresent.dylib">
+    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/../../native/machwgl/build.sh&quot;" />
+  </Target>
+  <Target Name="CopyMacHwGl" AfterTargets="BuildMacHwGl;Build"
+          Condition="$([MSBuild]::IsOSPlatform('OSX')) And Exists('$(MSBuildProjectDirectory)/../../native/machwgl/libwlpresent.dylib')">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/../../native/machwgl/libwlpresent.dylib"
+          DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- libvkpresent.dylib (macOS only): the Vulkan (MoltenVK) hardware-render context for 3D cores
+       that render via Vulkan (ParaLLEl-RDP N64, Beetle-PSX-Vulkan, …), built from native/vkpresent/.
+       libMoltenVK.dylib is shipped alongside it (libvkpresent finds it via @rpath/@loader_path). -->
+  <Target Name="BuildMacVk" BeforeTargets="Build"
+          Condition="$([MSBuild]::IsOSPlatform('OSX'))"
+          Inputs="$(MSBuildProjectDirectory)/../../native/vkpresent/macvk.c;$(MSBuildProjectDirectory)/../../native/vkpresent/build.sh"
+          Outputs="$(MSBuildProjectDirectory)/../../native/vkpresent/libvkpresent.dylib">
+    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/../../native/vkpresent/build.sh&quot;" />
+  </Target>
+  <Target Name="CopyMacVk" AfterTargets="BuildMacVk;Build"
+          Condition="$([MSBuild]::IsOSPlatform('OSX')) And Exists('$(MSBuildProjectDirectory)/../../native/vkpresent/libvkpresent.dylib')">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/../../native/vkpresent/libvkpresent.dylib"
+          DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <!-- Resolve the brew symlink to the real MoltenVK dylib so the copied file is the binary itself. -->
+    <Copy SourceFiles="/opt/homebrew/opt/molten-vk/lib/libMoltenVK.dylib"
+          DestinationFolder="$(OutDir)" SkipUnchangedFiles="true"
+          Condition="Exists('/opt/homebrew/opt/molten-vk/lib/libMoltenVK.dylib')" />
+  </Target>
+
   <ItemGroup>
     <!-- macOS port: released Avalonia 12.0.4 from nuget.org (no vendored feed). The Linux port
          pinned a vendored 12.1.999 (PR #20926) only for X11 drag-and-drop; macOS gets native DnD

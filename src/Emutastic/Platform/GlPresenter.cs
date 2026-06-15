@@ -584,6 +584,11 @@ namespace Emutastic.Platform
             if (_window != IntPtr.Zero) SDL_SetWindowFullscreen(_window, fullscreen);
         }
 
+        /// <summary>Live fullscreen state from SDL — true for BOTH our F11 toggle and macOS's native
+        /// (green-button / Cmd-Ctrl-F) fullscreen, since SDL's cocoa backend tracks the window flag.</summary>
+        public bool IsFullscreen =>
+            _window != IntPtr.Zero && (SDL_GetWindowFlags(_window) & SDL_WINDOW_FULLSCREEN) != 0;
+
         public void Dispose()
         {
             if (_ctx != IntPtr.Zero)

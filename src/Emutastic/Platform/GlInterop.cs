@@ -33,6 +33,31 @@ namespace Emutastic.Platform
                             NativeLibrary.TryLoad("/System/Library/Frameworks/OpenGL.framework/OpenGL", out _macGl);
                         return _macGl;
                     }
+                    // The HW-render context lib (WlToplevelPresenter/HwGlContext use LIB="wlpresent").
+                    // On macOS it's libwlpresent.dylib, built from native/machwgl (CGL). Resolve it here
+                    // because only ONE resolver is allowed per assembly and this one is registered first
+                    // (the present uses GL); WlToplevelPresenter's own registration is then a no-op.
+                    if (name == "wlpresent")
+                    {
+                        foreach (var cand in new[]
+                        {
+                            System.IO.Path.Combine(AppContext.BaseDirectory, "libwlpresent.dylib"),
+                            System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "native", "machwgl", "libwlpresent.dylib"),
+                        })
+                            if (System.IO.File.Exists(cand) && NativeLibrary.TryLoad(cand, out var lib)) return lib;
+                        return IntPtr.Zero;
+                    }
+                    // The Vulkan/MoltenVK HW-render shim (native/vkpresent → libvkpresent.dylib).
+                    if (name == "vkpresent")
+                    {
+                        foreach (var cand in new[]
+                        {
+                            System.IO.Path.Combine(AppContext.BaseDirectory, "libvkpresent.dylib"),
+                            System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "native", "vkpresent", "libvkpresent.dylib"),
+                        })
+                            if (System.IO.File.Exists(cand) && NativeLibrary.TryLoad(cand, out var lib)) return lib;
+                        return IntPtr.Zero;
+                    }
                     return IntPtr.Zero;   // EGL → fail (no macOS EGL); SDL3/etc → default resolution
                 });
             }
@@ -87,6 +112,7 @@ namespace Emutastic.Platform
         [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_GetWindowSizeInPixels(IntPtr window, out int w, out int h);
         [DllImport(SDL)] public static extern ulong SDL_GetWindowFlags(IntPtr window);
         public const ulong SDL_WINDOW_INPUT_FOCUS = 0x0000000000000200UL;   // window has keyboard focus
+        public const ulong SDL_WINDOW_FULLSCREEN   = 0x0000000000000001UL;   // window is in fullscreen
         [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_GetWindowPosition(IntPtr window, out int x, out int y);
         [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_GetWindowSize(IntPtr window, out int w, out int h);
         [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_SetWindowFullscreen(IntPtr window, [MarshalAs(UnmanagedType.I1)] bool fullscreen);

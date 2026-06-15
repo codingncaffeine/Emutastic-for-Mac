@@ -33,15 +33,25 @@ namespace Emutastic.Services.ConsoleHandlers
         public override bool AllowHwSharedContext => false;
 
         public override List<(string key, string label)> GetVisualOptions() => IsMupen
-            ? new()
-            {
-                // 43screensize is the OUTPUT resolution GLideN64 renders to — it sizes the av_info
-                // max geometry, hence our HW-render FBO, hence the resolution we read back. (Native-
-                // res-factor only scales GLideN64's internal render, not the libretro framebuffer, so
-                // it does nothing through our readback.) Sized at init → ⚠ restart to take effect.
-                ("mupen64plus-43screensize", "Resolution (restart)"),
-                ("mupen64plus-txFilterMode", "Texture Filter"),
-            }
+            ? (OperatingSystem.IsMacOS()
+                // macOS runs ParaLLEl-RDP (Vulkan), where the GLideN64 43screensize/txFilter knobs are inert.
+                // Expose ParaLLEl-RDP's own resolution multiplier — its marquee sharp-N64 feature — instead.
+                // Upscaling enlarges the rendered framebuffer (hence our readback); sized at load → ⚠ restart.
+                ? new()
+                {
+                    ("mupen64plus-parallel-rdp-upscaling", "Upscaling (restart)"),
+                    ("mupen64plus-parallel-rdp-synchronous", "Synchronous RDP"),
+                    ("mupen64plus-parallel-rdp-deinterlace-method", "Deinterlace"),
+                }
+                : new()
+                {
+                    // 43screensize is the OUTPUT resolution GLideN64 renders to — it sizes the av_info
+                    // max geometry, hence our HW-render FBO, hence the resolution we read back. (Native-
+                    // res-factor only scales GLideN64's internal render, not the libretro framebuffer, so
+                    // it does nothing through our readback.) Sized at init → ⚠ restart to take effect.
+                    ("mupen64plus-43screensize", "Resolution (restart)"),
+                    ("mupen64plus-txFilterMode", "Texture Filter"),
+                })
             : new()
             {
                 ("parallel-n64-parallel-rdp-upscaling", "Upscaling (restart)"),
@@ -54,11 +64,22 @@ namespace Emutastic.Services.ConsoleHandlers
             // makes a larger FBO cheap). The parallel-n64-* keys below are unknown to this core.
             ? new Dictionary<string, string>
             {
-                ["mupen64plus-rdp-plugin"]   = "gliden64",
+                // macOS: ParaLLEl-RDP over Vulkan/MoltenVK (Phase 2 HW-render) — GLideN64-over-GL is
+                // broken on Apple's strict GL core profile (black). Elsewhere keep GLideN64 (GL).
+                ["mupen64plus-rdp-plugin"]   = OperatingSystem.IsMacOS() ? "parallel" : "gliden64",
                 ["mupen64plus-rsp-plugin"]   = "hle",
                 ["mupen64plus-cpucore"]      = "dynamic_recompiler",
                 ["mupen64plus-pak1"]         = "memory",
                 ["mupen64plus-43screensize"] = "960x720",
+                // macOS/ParaLLEl-RDP defaults. Upscaling 2x is a light sharpness bump with bulletproof
+                // headroom; 4x/8x stay user-selectable via the exposed Upscaling option (8x holds 60fps on
+                // the M4 thanks to libvkpresent's pipelined Vulkan readback + the async GPU below). The
+                // synchronous=False is the single biggest perf win at high upscaling: the core submits its
+                // render and continues, so the GPU pipelines across frames instead of the CPU blocking on
+                // each frame's render (~12ms → it lifted 8x from ~47fps to a locked 60). Accuracy-sensitive
+                // games (CPU framebuffer effects) can re-enable it via the "Synchronous RDP" option.
+                ["mupen64plus-parallel-rdp-upscaling"]   = "2x",
+                ["mupen64plus-parallel-rdp-synchronous"] = "False",
             }
             : new Dictionary<string, string>
         {

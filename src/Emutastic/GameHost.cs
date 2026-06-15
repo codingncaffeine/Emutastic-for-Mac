@@ -35,6 +35,27 @@ namespace Emutastic
         [DllImport("libc", SetLastError = true)]
         private static extern int setenv([MarshalAs(UnmanagedType.LPUTF8Str)] string name, [MarshalAs(UnmanagedType.LPUTF8Str)] string value, int overwrite);
 
+        // Immediate process termination that does NOT run libc atexit handlers or C++ static destructors.
+        [DllImport("libc", EntryPoint = "_exit")]
+        private static extern void _libc_exit(int status);
+
+        // macOS: leave the process via _exit() so we skip the native atexit/static-destructor teardown.
+        // 3D cores (mupen64plus-next / parallel-rdp) and MoltenVK register C++ static destructors that run
+        // during libc exit() and crash ("dotnet quit unexpectedly") — they tear down Vulkan state we've
+        // already released, dereferencing dangling/null handles. The game-host is single-shot and every
+        // persistence step (SRAM, save states, results file, logs) is flushed before we get here, so a hard
+        // exit loses nothing. No-op off macOS (Linux's exit teardown is clean and the parent relies on it).
+        private static int HostExit(int code)
+        {
+            if (OperatingSystem.IsMacOS())
+            {
+                try { Console.Out.Flush(); } catch { }
+                try { Console.Error.Flush(); } catch { }
+                _libc_exit(code);
+            }
+            return code;
+        }
+
         // Longer default pre-warm budget (s). The warm loop exits EARLY once shader-cache growth
         // stalls, so this is an upper bound, not a fixed wait — covers menu/intro shaders without
         // making the common already-warm case sit idle.
@@ -289,7 +310,7 @@ namespace Emutastic
             Trace.WriteLine($"[Host] === game-host end: playSeconds={playSeconds} ===");
             if (log != null) { try { Trace.Flush(); Trace.Listeners.Remove(log); log.Dispose(); } catch { } }
             WriteResults(resultsPath, 0, playSeconds, session);
-            return 0;
+            return HostExit(0);   // macOS: hard _exit past the crashy native static-destructor teardown
         }
 
         // Mesa's on-disk shader cache: $MESA_SHADER_CACHE_DIR, else $XDG_CACHE_HOME/mesa_shader_cache_db,
