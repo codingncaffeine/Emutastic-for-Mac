@@ -488,7 +488,11 @@ namespace Emutastic.Services
             int total   = loudGames.Count;
             int done    = 0;
             int fetched = 0;
-            var sem     = new SemaphoreSlim(6, 6);
+            // Scale to the account's ScreenScraper thread allowance (paid tiers = up to 6; free = 1)
+            // instead of a hardcoded 6, so we use everything a paid member has without over-sending
+            // on a free account. The other fetch passes already honor this.
+            int ssThreads = Math.Max(1, App.Configuration?.GetSnapConfiguration()?.ScreenScraperMaxThreads ?? 1);
+            var sem     = new SemaphoreSlim(ssThreads, ssThreads);
 
             if (total > 0)
             {
