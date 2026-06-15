@@ -4,6 +4,7 @@ reference/
 # .NET build artifacts
 bin/
 obj/
+dist/
 *.user
 .vs/
 
