@@ -10,7 +10,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- The macOS port's own release line (pre-1.0; the library/UI is up while emulation is
          brought across from the Linux build). Surfaced in Preferences → About and as the release tag. -->
-    <Version>0.5.0</Version>
+    <Version>0.7.5</Version>
   </PropertyGroup>
 
   <ItemGroup>
