@@ -1019,10 +1019,11 @@ namespace Emutastic.Services
                         var adbResult = await adb.FetchAsync(romName);
                         if (adbResult != null)
                         {
-                            if (string.IsNullOrWhiteSpace(result.Developer)   && !string.IsNullOrWhiteSpace(adbResult.Manufacturer)) result.Developer   = adbResult.Manufacturer!;
-                            if (string.IsNullOrWhiteSpace(result.Publisher)   && !string.IsNullOrWhiteSpace(adbResult.Manufacturer)) result.Publisher   = adbResult.Manufacturer!;
-                            if (string.IsNullOrWhiteSpace(result.Genre)       && !string.IsNullOrWhiteSpace(adbResult.Genre))        result.Genre       = adbResult.Genre!;
-                            if (string.IsNullOrWhiteSpace(result.Description) && !string.IsNullOrWhiteSpace(adbResult.History))      result.Description = adbResult.History!;
+                            // Arcade-history text can carry HTML entities — decode like the SS path.
+                            if (string.IsNullOrWhiteSpace(result.Developer)   && !string.IsNullOrWhiteSpace(adbResult.Manufacturer)) result.Developer   = System.Net.WebUtility.HtmlDecode(adbResult.Manufacturer!);
+                            if (string.IsNullOrWhiteSpace(result.Publisher)   && !string.IsNullOrWhiteSpace(adbResult.Manufacturer)) result.Publisher   = System.Net.WebUtility.HtmlDecode(adbResult.Manufacturer!);
+                            if (string.IsNullOrWhiteSpace(result.Genre)       && !string.IsNullOrWhiteSpace(adbResult.Genre))        result.Genre       = System.Net.WebUtility.HtmlDecode(adbResult.Genre!);
+                            if (string.IsNullOrWhiteSpace(result.Description) && !string.IsNullOrWhiteSpace(adbResult.History))      result.Description = System.Net.WebUtility.HtmlDecode(adbResult.History!);
                             if (string.IsNullOrWhiteSpace(result.ReleaseDate) && !string.IsNullOrWhiteSpace(adbResult.Year))         result.ReleaseDate = adbResult.Year!;
                         }
                     }

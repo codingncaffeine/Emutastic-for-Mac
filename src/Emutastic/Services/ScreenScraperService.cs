@@ -697,13 +697,15 @@ namespace Emutastic.Services
                     && string.IsNullOrWhiteSpace(description))
                     return null;
 
+                // ScreenScraper returns text with HTML entities (e.g. synopsis "&quot;1942&quot;",
+                // "Capcom &amp; ...", "&#39;"). Decode so we store/display real characters, not markup.
                 return new SsMetadata(
-                    NullIfEmpty(title),
+                    NullIfEmpty(System.Net.WebUtility.HtmlDecode(title)),
                     NullIfEmpty(year),
-                    NullIfEmpty(developer),
-                    NullIfEmpty(publisher),
-                    NullIfEmpty(genre),
-                    NullIfEmpty(description));
+                    NullIfEmpty(System.Net.WebUtility.HtmlDecode(developer)),
+                    NullIfEmpty(System.Net.WebUtility.HtmlDecode(publisher)),
+                    NullIfEmpty(System.Net.WebUtility.HtmlDecode(genre)),
+                    NullIfEmpty(System.Net.WebUtility.HtmlDecode(description)));
             }
             catch (Exception ex)
             {

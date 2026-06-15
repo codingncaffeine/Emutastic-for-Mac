@@ -67,10 +67,40 @@ public partial class GameDetailWindow : Window
     protected override void OnOpened(EventArgs e)
     {
         base.OnOpened(e);
+        // Heal any HTML-entity-encoded metadata stored before the decode fix (e.g. 1942's
+        // "&quot;1942&quot;") so the card — and the DB — show real characters.
+        HealEncodedMetadata();
         // Owner (→ MainWindow.ArtworkFetch) is only assigned when the window is shown via
         // Show(this) — AFTER the constructor — so the on-demand metadata fetch must run here,
         // not in the ctor, or it sees a null Owner and silently no-ops.
         _ = LoadMetadataOnDemandAsync();
+    }
+
+    // Decode HTML entities in this game's already-stored metadata (legacy rows scraped before the
+    // ScreenScraper/ADB decode fix). Persists the cleaned text and refreshes the pills/description.
+    // No-op for clean rows (HtmlDecode of plain text is unchanged), so it's safe on every open.
+    private void HealEncodedMetadata()
+    {
+        string dev  = System.Net.WebUtility.HtmlDecode(_game.Developer   ?? "");
+        string pub  = System.Net.WebUtility.HtmlDecode(_game.Publisher   ?? "");
+        string gen  = System.Net.WebUtility.HtmlDecode(_game.Genre       ?? "");
+        string desc = System.Net.WebUtility.HtmlDecode(_game.Description ?? "");
+        string title= System.Net.WebUtility.HtmlDecode(_game.Title       ?? "");
+
+        bool metaChanged = dev != (_game.Developer ?? "") || pub != (_game.Publisher ?? "")
+                        || gen != (_game.Genre ?? "") || desc != (_game.Description ?? "");
+        if (metaChanged)
+        {
+            _game.Developer = dev; _game.Publisher = pub; _game.Genre = gen; _game.Description = desc;
+            try { _db.UpdateMetadata(_game.Id, dev, pub, gen, desc); } catch { }
+        }
+        if (title != (_game.Title ?? ""))
+        {
+            _game.Title = title;
+            try { _db.UpdateTitle(_game.Id, title); } catch { }
+            Get<TextBlock>("GameTitle").Text = title;
+        }
+        if (metaChanged) PopulateMetadata();
     }
 
     protected override void OnClosed(EventArgs e)
