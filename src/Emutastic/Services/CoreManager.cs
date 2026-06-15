@@ -84,6 +84,17 @@ namespace Emutastic.Services
                                      "mame2003_plus_libretro.so"        }},
         };
 
+        // macOS/Windows: the core-map literals above are Linux ".so" names; rewrite them to the
+        // platform extension (.dylib/.dll) so lookups, downloads, and missing-core checks all
+        // resolve the real files. Linux keeps the literals unchanged.
+        static CoreManager()
+        {
+            if (AppPaths.CoreExt == ".so") return;
+            foreach (var key in ConsoleCoreMap.Keys.ToList())
+                ConsoleCoreMap[key] = ConsoleCoreMap[key]
+                    .Select(f => Path.ChangeExtension(f, AppPaths.CoreExt)!).ToArray();
+        }
+
         // Region-specific BIOS requirements for consoles where the BIOS must match the game region.
         // Key: console tag → region → candidate filenames (any one is sufficient).
         // "World" is handled by accepting any region's BIOS.

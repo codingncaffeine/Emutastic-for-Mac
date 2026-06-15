@@ -21,7 +21,7 @@ namespace Emutastic.Services
     public class CoreDownloadService
     {
         // ── Catalog ───────────────────────────────────────────────────────────
-        public static readonly IReadOnlyList<CoreEntry> Catalog = new List<CoreEntry>
+        private static readonly IReadOnlyList<CoreEntry> _catalogRaw = new List<CoreEntry>
         {
             new() { FileName = "nestopia_libretro.so",         DisplayName = "Nestopia",              Systems = ["NES", "FDS"],                        Recommended = true  },
             new() { FileName = "quicknes_libretro.so",         DisplayName = "QuickNES",              Systems = ["NES"],                               Recommended = false },
@@ -68,9 +68,22 @@ namespace Emutastic.Services
             new() { FileName = "geolith_libretro.so",         DisplayName = "Geolith (Neo Geo / CD)", Systems = ["NeoGeo", "NeoCD"],                   Recommended = true  },
         };
 
+        // macOS/Windows: the catalog FileNames above are Linux ".so" names; resolve each to the
+        // platform extension so the local path, the in-zip entry match, and the download URL all
+        // line up (.dylib on macOS, .dll on Windows). Linux uses the literals unchanged.
+        public static readonly IReadOnlyList<CoreEntry> Catalog =
+            AppPaths.CoreExt == ".so" ? _catalogRaw
+            : _catalogRaw.Select(e => new CoreEntry
+              {
+                  FileName    = Path.ChangeExtension(e.FileName, AppPaths.CoreExt)!,
+                  DisplayName = e.DisplayName,
+                  Systems     = e.Systems,
+                  Recommended = e.Recommended,
+              }).ToList();
+
         // ── Infrastructure ────────────────────────────────────────────────────
         private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(10) };
-        private const string BuildbotBase = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/";
+        private static readonly string BuildbotBase = AppPaths.LibretroBuildbotBase;
 
         private string ZipUrl(string fileName) => BuildbotBase + fileName + ".zip";
 
@@ -162,19 +175,28 @@ namespace Emutastic.Services
         /// Downloads the zip, backs up the existing .dll to .dll.bak, then extracts.
         /// Reports 0–100 progress.
         /// </summary>
-        // A freshly-downloaded core must be a non-empty ELF shared object before we
-        // accept it (magic bytes 0x7F 'E' 'L' 'F'). Cheap fail-safe so a corrupt or
-        // wrong-content download is never left in place to be dlopen'd.
-        private static bool IsElfSharedObject(string path)
+        // A freshly-downloaded core must be a non-empty native shared object before we accept it:
+        // ELF (Linux .so), Mach-O (macOS .dylib), or PE (Windows .dll). Cheap fail-safe so a
+        // corrupt or wrong-content download is never left in place to be dlopen'd.
+        private static bool IsNativeSharedObject(string path)
         {
             try
             {
                 var fi = new FileInfo(path);
                 if (!fi.Exists || fi.Length < 1024) return false;   // a real core is tens of KB+
-                Span<byte> magic = stackalloc byte[4];
+                Span<byte> m = stackalloc byte[4];
                 using var fs = File.OpenRead(path);
-                if (fs.Read(magic) < 4) return false;
-                return magic[0] == 0x7F && magic[1] == (byte)'E' && magic[2] == (byte)'L' && magic[3] == (byte)'F';
+                if (fs.Read(m) < 4) return false;
+                // ELF: 7F 45 4C 46
+                if (m[0] == 0x7F && m[1] == (byte)'E' && m[2] == (byte)'L' && m[3] == (byte)'F') return true;
+                // Mach-O 64/32-bit little-endian (CF/CE FA ED FE — what arm64 .dylib produces)
+                if ((m[0] == 0xCF || m[0] == 0xCE) && m[1] == 0xFA && m[2] == 0xED && m[3] == 0xFE) return true;
+                // Mach-O big-endian (FE ED FA CF/CE) and fat/universal (CA FE BA BE)
+                if (m[0] == 0xFE && m[1] == 0xED && m[2] == 0xFA && (m[3] == 0xCF || m[3] == 0xCE)) return true;
+                if (m[0] == 0xCA && m[1] == 0xFE && m[2] == 0xBA && m[3] == 0xBE) return true;
+                // PE/COFF (Windows .dll): 'MZ'
+                if (m[0] == (byte)'M' && m[1] == (byte)'Z') return true;
+                return false;
             }
             catch { return false; }
         }
@@ -282,9 +304,9 @@ namespace Emutastic.Services
                 // compromise would need libretro-signed cores, which don't exist —
                 // HTTPS to the official buildbot is the trust anchor.)
                 phase = "validate";
-                if (!IsElfSharedObject(localPath))
+                if (!IsNativeSharedObject(localPath))
                 {
-                    Trace("extracted file is not a valid ELF shared object — rejecting");
+                    Trace("extracted file is not a valid native shared object — rejecting");
                     try { File.Delete(localPath); } catch { }
                     string bak = BackupPath(coresFolder, entry.FileName);
                     if (File.Exists(bak))

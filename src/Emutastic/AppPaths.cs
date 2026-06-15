@@ -36,6 +36,27 @@ namespace Emutastic
                     : Environment.SpecialFolder.LocalApplicationData),
                 "Emutastic");
 
+        /// <summary>
+        /// Platform extension for native libretro core files: ".dll" on Windows, ".dylib" on
+        /// macOS, ".so" on Linux. Core filenames in the catalog/map are resolved through this so
+        /// the same core identity works across platforms.
+        /// </summary>
+        public static string CoreExt =>
+            OperatingSystem.IsWindows() ? ".dll"
+            : OperatingSystem.IsMacOS() ? ".dylib"
+            : ".so";
+
+        /// <summary>
+        /// The libretro nightly buildbot base URL for this OS + CPU — cores are downloaded from
+        /// here (per-platform builds; apple/osx/arm64 on Apple Silicon).
+        /// </summary>
+        public static string LibretroBuildbotBase =>
+            OperatingSystem.IsWindows()
+                ? "https://buildbot.libretro.com/nightly/windows/x86_64/latest/"
+            : OperatingSystem.IsMacOS()
+                ? $"https://buildbot.libretro.com/nightly/apple/osx/{(System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "arm64" : "x86_64")}/latest/"
+            : "https://buildbot.libretro.com/nightly/linux/x86_64/latest/";
+
         /// <summary>True when a portable.txt marker was found next to the .exe.</summary>
         public static bool IsPortable => _portable;
 

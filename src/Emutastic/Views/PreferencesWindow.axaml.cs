@@ -1878,7 +1878,7 @@ public partial class PreferencesWindow : Window
         var installed = await Task.Run(() =>
         {
             var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            try { foreach (var f in System.IO.Directory.EnumerateFiles(coresFolder, "*.so")) set.Add(System.IO.Path.GetFileName(f)); } catch { }
+            try { foreach (var f in System.IO.Directory.EnumerateFiles(coresFolder, "*" + AppPaths.CoreExt)) set.Add(System.IO.Path.GetFileName(f)); } catch { }
             return set;
         });
         if (!this.FindControl<Grid>("PanelCores")!.IsVisible) { _coresBuilding = false; return; }
