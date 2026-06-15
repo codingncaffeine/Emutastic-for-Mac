@@ -3353,6 +3353,17 @@ namespace Emutastic.Emulator
         {
             if (!fmt.Contains('%')) return fmt;
 
+            // ARM64 ABI: unlike x86-64 SysV (which keeps the first integer varargs in rdx/rcx/r8/r9
+            // = our a0..a3), AAPCS passes ALL variadic args on the STACK. So on arm64 (Apple Silicon,
+            // and arm64 Linux) a0..a3 capture unrelated register contents — garbage — and a "%s" would
+            // PtrToStringAnsi a wild pointer → AccessViolation that crashes the game-host on core load
+            // (this is what made nestopia/NES "show nothing"). We can't portably read C varargs from a
+            // managed callback, so emit the format string with its specifiers left literal. Diagnostic
+            // core logs stay readable; nothing is dereferenced.
+            if (System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
+                    == System.Runtime.InteropServices.Architecture.Arm64)
+                return fmt;
+
             var args = new IntPtr[] { a0, a1, a2, a3 };
             int argIdx = 0;
 
