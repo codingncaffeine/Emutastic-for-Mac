@@ -22,7 +22,7 @@
         <Border.Effect>
             <DropShadowEffect BlurRadius="30" OffsetX="0" OffsetY="0" Opacity="0.6" Color="{DynamicResource ShadowColor}"/>
         </Border.Effect>
-        <Border CornerRadius="10" ClipToBounds="True">
+        <Border x:Name="InnerClip" CornerRadius="10" ClipToBounds="True">
     <Grid Name="RootGrid" RowDefinitions="38,*,Auto">
 
         <!-- ══ TITLE BAR ══ -->

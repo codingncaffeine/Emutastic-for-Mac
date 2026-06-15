@@ -108,14 +108,14 @@
     </Window.Resources>
 
     <!-- Root card (custom chrome → soft window shadow) -->
-    <Border Background="{DynamicResource BgPrimaryBrush}"
+    <Border x:Name="OuterBorder" Background="{DynamicResource BgPrimaryBrush}"
             BorderBrush="{DynamicResource BorderNormalBrush}" BorderThickness="1" CornerRadius="10">
         <Border.Effect>
             <DropShadowEffect BlurRadius="30" OffsetX="0" OffsetY="0" Opacity="0.6" Color="{DynamicResource ShadowColor}"/>
         </Border.Effect>
 
         <!-- Inner clip border so child content respects the rounded corners (matches upstream). -->
-        <Border CornerRadius="10" ClipToBounds="True">
+        <Border x:Name="InnerClip" CornerRadius="10" ClipToBounds="True">
         <Grid Name="RootGrid" RowDefinitions="38,46,*" ClipToBounds="True">
 
             <!-- ═══ TITLE BAR ═══ -->
@@ -442,6 +442,13 @@
                             <!-- ══ WINDOW STYLE ══ -->
                             <TextBlock Text="WINDOW STYLE" Theme="{StaticResource PrefLabel}" Margin="0,28,0,4"/>
                             <Rectangle Height="1" Fill="{DynamicResource BorderNormalBrush}" Margin="0,0,0,16"/>
+
+                            <CheckBox Name="NativeChromeCheck" Content="Use native window controls"
+                                      Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13" Margin="0,0,0,2"/>
+                            <TextBlock Text="Use the system title bar with real minimize / maximize / close buttons instead of the custom frameless window. Restart to apply."
+                                       FontSize="11" FontFamily="{DynamicResource PrimaryFont}"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       Margin="0,0,0,16" TextWrapping="Wrap"/>
 
                             <StackPanel Margin="0,0,0,4">
                                 <TextBlock Text="Title-bar buttons" FontSize="13" FontFamily="{DynamicResource PrimaryFont}"

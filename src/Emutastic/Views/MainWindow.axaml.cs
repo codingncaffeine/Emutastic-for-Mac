@@ -44,22 +44,31 @@ public partial class MainWindow : Window
         RestoreWindowBounds();
         Closing += (_, _) => SaveWindowBounds();
 
-        Platform.WindowResize.Enable(this);   // edge/corner resize for the borderless window
+        // Native OS chrome (Preferences → Theme → "Use native window controls"): real macOS title bar
+        // + traffic-light min/max/close. Otherwise keep the custom frameless shell.
+        bool nativeChrome = Platform.WindowChrome.ApplyIfEnabled(this,
+            this.FindControl<Grid>("CustomTitleBar"), this.FindControl<Grid>("RootGrid"), 0,
+            this.FindControl<Border>("OuterBorder"), this.FindControl<Border>("InnerClip"));
+
         Activated += OnMainActivated;          // click back on the app → dismiss the game-detail card
 
         this.FindControl<Button>("MinimizeButton")!.Click += (_, _) => WindowState = WindowState.Minimized;
         this.FindControl<Button>("MaximizeButton")!.Click += (_, _) => ToggleMaximize();
         this.FindControl<Button>("CloseButton")!.Click += (_, _) => Close();
 
-        var titleBar = this.FindControl<Grid>("CustomTitleBar")!;
-        titleBar.PointerPressed += (_, e) =>
+        if (!nativeChrome)
         {
-            if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            Platform.WindowResize.Enable(this);   // edge/corner resize for the borderless window
+            var titleBar = this.FindControl<Grid>("CustomTitleBar")!;
+            titleBar.PointerPressed += (_, e) =>
             {
-                if (e.ClickCount == 2) ToggleMaximize();
-                else BeginMoveDrag(e);
-            }
-        };
+                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+                {
+                    if (e.ClickCount == 2) ToggleMaximize();
+                    else BeginMoveDrag(e);
+                }
+            };
+        }
 
         // Launch on double-click / Enter from the library grid.
         var grid = this.FindControl<ListBox>("GameGridView")!;

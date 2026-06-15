@@ -81,13 +81,20 @@ public partial class PreferencesWindow : Window
         InitializeComponent();
         if (!string.IsNullOrEmpty(initialConsole)) _currentConsole = initialConsole;
 
-        Platform.WindowResize.Enable(this);   // edge/corner resize for the borderless window
+        // Native OS chrome (Preferences → Theme → "Use native window controls"): real title bar +
+        // min/max/close. Otherwise keep the custom frameless shell.
+        bool nativeChrome = Platform.WindowChrome.ApplyIfEnabled(this,
+            this.FindControl<Grid>("CustomTitleBar"), this.FindControl<Grid>("RootGrid"), 0,
+            this.FindControl<Border>("OuterBorder"), this.FindControl<Border>("InnerClip"));
 
-        // Custom chrome.
-        this.FindControl<Grid>("CustomTitleBar")!.PointerPressed += (_, e) =>
+        if (!nativeChrome)
         {
-            if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) BeginMoveDrag(e);
-        };
+            Platform.WindowResize.Enable(this);   // edge/corner resize for the borderless window
+            this.FindControl<Grid>("CustomTitleBar")!.PointerPressed += (_, e) =>
+            {
+                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) BeginMoveDrag(e);
+            };
+        }
         this.FindControl<Button>("MinimizeButton")!.Click += (_, _) => WindowState = WindowState.Minimized;
         this.FindControl<Button>("MaximizeButton")!.Click += (_, _) =>
             WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
@@ -407,6 +414,19 @@ public partial class PreferencesWindow : Window
             }
         };
 
+        // Native window controls (real OS title bar). The custom button style only matters with the
+        // custom chrome, so disable that combo while native chrome is on. Applied on next launch.
+        var nativeChromeCheck = this.FindControl<CheckBox>("NativeChromeCheck")!;
+        nativeChromeCheck.IsCheckedChanged += (_, _) =>
+        {
+            if (_suppressPauseChange) return;
+            bool on = nativeChromeCheck.IsChecked == true;
+            UpdateThemeConfig(c => c.UseWindowsChrome = on);
+            styleCombo.IsEnabled = !on;
+            this.FindControl<TextBlock>("ThemeStatusText")!.Text =
+                "Window controls change applies after you restart Emutastic.";
+        };
+
         var intensity = this.FindControl<Slider>("PauseEffectIntensitySlider")!;
         intensity.PropertyChanged += (_, e) =>
         {
@@ -438,6 +458,8 @@ public partial class PreferencesWindow : Window
         var styleCombo = this.FindControl<ComboBox>("WindowStyleCombo")!;
         styleCombo.SelectedItem = styleCombo.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string?)i.Tag == cfg.WindowButtonStyle)
             ?? styleCombo.Items.OfType<ComboBoxItem>().FirstOrDefault();
+        this.FindControl<CheckBox>("NativeChromeCheck")!.IsChecked = cfg.UseWindowsChrome;
+        styleCombo.IsEnabled = !cfg.UseWindowsChrome;
         _suppressPauseChange = false;
     }
 

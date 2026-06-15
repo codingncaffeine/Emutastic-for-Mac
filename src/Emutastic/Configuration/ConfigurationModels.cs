@@ -160,9 +160,10 @@ namespace Emutastic.Configuration
         /// <summary>Width of each game card in pixels. Clamped 148–280 by the UI.</summary>
         public int CardWidth { get; set; } = 148;
         /// <summary>
-        /// When true, uses standard Windows chrome (system title bar + min/max/close buttons)
-        /// instead of the custom macOS-style frameless window.
-        /// Applied on next launch.
+        /// When true, the app uses the native OS window chrome — the system title bar and real
+        /// minimize/maximize/close buttons (macOS traffic lights) — instead of the custom frameless
+        /// window. Read by <c>Platform.WindowChrome</c>; surfaced in Preferences → Theme as
+        /// "Use native window controls". Applied on next launch.
         /// </summary>
         public bool UseWindowsChrome { get; set; } = false;
         /// <summary>Title-bar min/max/close button style: "macOS" | "Windows11" | "Linux".</summary>
