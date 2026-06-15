@@ -28,14 +28,25 @@ only the platform plumbing swapped underneath — WPF → **Avalonia (Avalonia.N
 
 ## Requirements
 
-- An **Apple Silicon** Mac (arm64), **macOS 13 or newer** (developed on the latest macOS / Apple Silicon)
-- Runtime dependencies via [Homebrew](https://brew.sh) (packaged releases will bundle these later):
-  `sdl3` (audio + controllers), `ffmpeg` (recording encodes). Recommended: `vlc` (video snap previews).
-- libretro core `.dylib` files (downloadable in-app — Preferences → Cores)
-- Optional: DAT files for ROM identification (Preferences → Cores / Extras)
+- An **Apple Silicon** Mac (arm64), **macOS 13 or newer**. That's the whole list.
 
-Packaged releases will bundle the .NET 10 runtime (self-contained), so no separate .NET install is needed.
-Until then, [build from source](#building).
+A packaged release is **fully self-contained** — the `.app` bundles the .NET 10 runtime, the
+Avalonia/Skia UI stack, and **SDL3** (audio + controllers). No Homebrew, no .NET install, nothing to
+set up.
+
+Everything else is fetched **inside the app** (Preferences → Cores / Extras) on demand — you never
+install any of it by hand:
+
+| In-app download | Where | What it's for |
+|---|---|---|
+| **libretro cores** (`.dylib`) | Preferences → Cores | the per-system emulator cores |
+| **ffmpeg** (Apple-Silicon static build) | Preferences → Extras | gameplay recording — same model as the in-app `ffmpeg.exe` download on Windows |
+| **DAT files** | Preferences → Cores / Extras | ROM identification |
+
+Video snap previews use **libVLC**, bundled in the app (arriving in an upcoming build).
+
+> The Homebrew packages listed under [Building](#building) (`dotnet`, `sdl3`, `ffmpeg`, …) are **only
+> needed to build from source** — end users running the `.app` never touch Homebrew.
 
 ---
 
