@@ -55,7 +55,15 @@ public partial class GameDetailWindow : Window
         SetupAnimateIn();
         _ = LoadSnapAsync();
         _ = LoadRetroAchievementsAsync();
-        _ = LoadMetadataOnDemandAsync();   // fill missing metadata from the web (ScreenScraper) on the fly
+    }
+
+    protected override void OnOpened(EventArgs e)
+    {
+        base.OnOpened(e);
+        // Owner (→ MainWindow.ArtworkFetch) is only assigned when the window is shown via
+        // Show(this) — AFTER the constructor — so the on-demand metadata fetch must run here,
+        // not in the ctor, or it sees a null Owner and silently no-ops.
+        _ = LoadMetadataOnDemandAsync();
     }
 
     protected override void OnClosed(EventArgs e)
