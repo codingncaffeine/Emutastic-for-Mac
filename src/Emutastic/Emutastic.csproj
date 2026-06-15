@@ -23,6 +23,13 @@
     <None Include="Assets\Sounds\Notification1.mp3" Link="Assets/Sounds/Notification1.mp3" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- Native shared-lib extension for the rcheevos/libchdr build + copy targets below:
+       clang .dylib on macOS, gcc .so on Linux. (Windows ships prebuilt .dll Content instead.) -->
+  <PropertyGroup>
+    <NativeLibExt Condition="$([MSBuild]::IsOSPlatform('OSX'))">dylib</NativeLibExt>
+    <NativeLibExt Condition="$([MSBuild]::IsOSPlatform('Linux'))">so</NativeLibExt>
+  </PropertyGroup>
+
   <!-- Build the native Wayland presenter shim (libwlpresent.so) from native/wlpresent/ and drop it beside
        the app, so the own-toplevel game window works from a clean build. Linux only; incremental (skips when
        the .so is newer than its sources). Needs gcc + pkg-config + wayland/egl/gl dev packages. -->
@@ -42,28 +49,28 @@
        native/rcheevos-src (pinned v11.6.0). build.sh also runs the checkabi
        harness whose numbers RcheevosInterop.VerifyAbi() asserts at runtime. -->
   <Target Name="BuildRcheevos" BeforeTargets="Build"
-          Condition="$([MSBuild]::IsOSPlatform('Linux'))"
+          Condition="$([MSBuild]::IsOSPlatform('Linux')) Or $([MSBuild]::IsOSPlatform('OSX'))"
           Inputs="$(MSBuildProjectDirectory)/../../native/rcheevos/build.sh;$(MSBuildProjectDirectory)/../../native/rcheevos/checkabi.c"
-          Outputs="$(MSBuildProjectDirectory)/../../native/rcheevos/librcheevos.so">
+          Outputs="$(MSBuildProjectDirectory)/../../native/rcheevos/librcheevos.$(NativeLibExt)">
     <Exec Command="bash &quot;$(MSBuildProjectDirectory)/../../native/rcheevos/build.sh&quot;" />
   </Target>
   <Target Name="CopyRcheevos" AfterTargets="BuildRcheevos;Build"
-          Condition="$([MSBuild]::IsOSPlatform('Linux')) And Exists('$(MSBuildProjectDirectory)/../../native/rcheevos/librcheevos.so')">
-    <Copy SourceFiles="$(MSBuildProjectDirectory)/../../native/rcheevos/librcheevos.so"
+          Condition="($([MSBuild]::IsOSPlatform('Linux')) Or $([MSBuild]::IsOSPlatform('OSX'))) And Exists('$(MSBuildProjectDirectory)/../../native/rcheevos/librcheevos.$(NativeLibExt)')">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/../../native/rcheevos/librcheevos.$(NativeLibExt)"
           DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 
   <!-- libchdr (CHD disc images) built from the vendored source at native/libchdr-src;
        used by RcheevosChdCdReader so CHD content identifies on RetroAchievements. -->
   <Target Name="BuildLibChdr" BeforeTargets="Build"
-          Condition="$([MSBuild]::IsOSPlatform('Linux'))"
+          Condition="$([MSBuild]::IsOSPlatform('Linux')) Or $([MSBuild]::IsOSPlatform('OSX'))"
           Inputs="$(MSBuildProjectDirectory)/../../native/libchdr/build.sh"
-          Outputs="$(MSBuildProjectDirectory)/../../native/libchdr/libchdr.so">
+          Outputs="$(MSBuildProjectDirectory)/../../native/libchdr/libchdr.$(NativeLibExt)">
     <Exec Command="bash &quot;$(MSBuildProjectDirectory)/../../native/libchdr/build.sh&quot;" />
   </Target>
   <Target Name="CopyLibChdr" AfterTargets="BuildLibChdr;Build"
-          Condition="$([MSBuild]::IsOSPlatform('Linux')) And Exists('$(MSBuildProjectDirectory)/../../native/libchdr/libchdr.so')">
-    <Copy SourceFiles="$(MSBuildProjectDirectory)/../../native/libchdr/libchdr.so"
+          Condition="($([MSBuild]::IsOSPlatform('Linux')) Or $([MSBuild]::IsOSPlatform('OSX'))) And Exists('$(MSBuildProjectDirectory)/../../native/libchdr/libchdr.$(NativeLibExt)')">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/../../native/libchdr/libchdr.$(NativeLibExt)"
           DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 
