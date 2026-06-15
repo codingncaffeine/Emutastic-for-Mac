@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 
@@ -61,7 +62,10 @@ namespace Emutastic.Services.ConsoleHandlers
                 core.SetControllerPortDevice(port, RETRO_DEVICE_JOYPAD);
         }
 
-        public override int PreferredHwContext => 3;  // RETRO_HW_CONTEXT_OPENGL_CORE
+        // macOS: Vulkan (6) over MoltenVK — Flycast has no graphics-API core option; it picks its backend
+        // from GET_PREFERRED_HW_RENDER (env 56), and its vk_context_lr.cpp drives the libretro Vulkan
+        // HW-render interface our libvkpresent serves (like N64/GameCube/3DS). Elsewhere: OpenGL Core (3).
+        public override int PreferredHwContext => OperatingSystem.IsMacOS() ? 6 : 3;
         public override bool AllowHwSharedContext => false;
         public override bool UseEmbeddedWindow => false;
 
