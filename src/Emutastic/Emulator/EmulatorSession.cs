@@ -881,11 +881,57 @@ namespace Emutastic.Emulator
         private void RunDecoupled(double targetFrameMs, double cushionMs)
         {
             using var ready = new System.Threading.ManualResetEventSlim(false);
+
+            if (OperatingSystem.IsMacOS())
+            {
+                // macOS: SDL3's cocoa backend requires SDL video init + NSWindow + the event pump on the
+                // PROCESS MAIN THREAD (off-main it returns "No available video device"). So invert the Linux
+                // model: run the GL present on THIS (main) thread and the emulator core loop on a worker.
+                // This also serves the responsiveness rule — the heavy, lockup-prone core work is off the
+                // main/UI thread; main does only the OS-mandated present + Cocoa event pump (which is also
+                // what keeps the window draggable/closable on macOS).
+                var coreThread = new Thread(() =>
+                {
+                    ready.Wait();   // wait until the present (main) has created — or failed to create — the GL window
+                    if (_gl == null && _wlTop == null)
+                    { Trace.WriteLine("[Emu] decoupled(macOS): GL present failed to start; stopping"); _running = false; return; }
+                    RunDecoupledEmuLoop(targetFrameMs, cushionMs);
+                    _running = false;
+                    SaveSram();   // flush battery save on the core thread, core still loaded
+                    // HW-render teardown on the core thread (where the context is current). Software cores
+                    // (the macOS-supported set) never set _hwRenderActive, so this is a no-op for them.
+                    if (_hwRenderActive) { try { Platform.HwGlContext.Destroy(); } catch { } _hwRenderActive = false; }
+                }) { IsBackground = true, Name = "EmuLoop" };
+                _thread = coreThread;   // so Dispose()'s join + use-after-free guard covers the core worker
+                coreThread.Start();
+                PresentThreadProc(ready);   // MAIN THREAD: GlPresenter init + present/OSD loop; returns on window close
+                _running = false;           // window closed (1830) or core stopped — make sure the worker exits
+                try { coreThread.Join(5000); } catch { }
+                return;
+            }
+
+            // Linux/Wayland/X11 — UNCHANGED: present on its own thread, core loop on this (inline-main) thread.
             var presentThread = new Thread(() => PresentThreadProc(ready)) { IsBackground = true, Name = "GlPresent" };
             presentThread.Start();
             ready.Wait();
             if (_gl == null && _wlTop == null) { Trace.WriteLine("[Emu] decoupled: GL present failed to start; stopping"); _running = false; }
+            RunDecoupledEmuLoop(targetFrameMs, cushionMs);
+            _running = false;
+            try { presentThread.Join(1500); } catch { }
+            SaveSram();   // flush battery save on clean exit (emu thread, core still loaded)
+            // Tear down the HW-render context on THIS (emu) thread, where it's current. We deliberately do
+            // NOT call the core's context_destroy (mupen/PPSSPP run async cleanup that crashes if we do —
+            // per the per-core quirks); just drop our EGL context + FBO.
+            if (_hwRenderActive) { try { Platform.HwGlContext.Destroy(); } catch { } _hwRenderActive = false; }
+        }
 
+        // The decoupled emulator core loop (the heavy work): runs the core, paces by audio, services
+        // save/load-state + disc-swap + cheats, and publishes frames into the shared frame buffer. On Linux
+        // this runs on the inline-main thread; on macOS it runs on the "EmuLoop" worker (present owns main
+        // there). Contains NO GL/SDL window/event calls for software cores — the present thread owns the
+        // window + context + event pump.
+        private void RunDecoupledEmuLoop(double targetFrameMs, double cushionMs)
+        {
             var frameTimer = Stopwatch.StartNew();
             long drcLogTick = 0;
             // RetroArch audio-backpressure pacing for self-pacing cores (PPSSPP) — see PspHandler.
@@ -894,7 +940,9 @@ namespace Emutastic.Emulator
             {
                 if (_resetRequested) { _resetRequested = false; try { _core!.Reset(); } catch (Exception ex) { Trace.WriteLine($"[Emu] reset threw: {ex}"); } }
                 if (_paused) { RaIdle(); Thread.Sleep(16); frameTimer.Restart(); continue; }
-                if (!_noInputPoll) _input.Poll();
+                // macOS: SDL_PumpEvents (inside _input.Poll) is not multi-thread safe and must run on the
+                // main thread — the present(main) loop owns all SDL pumping there, so the core worker skips it.
+                if (!_noInputPoll && !OperatingSystem.IsMacOS()) _input.Poll();
                 ServiceDiskSwap();   // disc-swap chord (L3+Start) + FDS/deferred-insert ticks
                 if (_saveStatePending) ExecuteSaveOnEmuThread();   // between retro_run calls, like upstream
                 if (_loadStatePending) ExecuteLoadOnEmuThread();
@@ -1034,14 +1082,6 @@ namespace Emutastic.Emulator
                 }
                 if (!_paused && (++_srmAutoSaveTick % 600) == 0) SaveSram();
             }
-
-            _running = false;
-            try { presentThread.Join(1500); } catch { }
-            SaveSram();   // flush battery save on clean exit (emu thread, core still loaded)
-            // Tear down the HW-render context on THIS (emu) thread, where it's current. We deliberately do
-            // NOT call the core's context_destroy (mupen/PPSSPP run async cleanup that crashes if we do —
-            // per the per-core quirks); just drop our EGL context + FBO.
-            if (_hwRenderActive) { try { Platform.HwGlContext.Destroy(); } catch { } _hwRenderActive = false; }
         }
 
         // Present thread: owns the GL window + context + event pump. Shows the latest produced frame at
@@ -1648,6 +1688,10 @@ namespace Emutastic.Emulator
             while (_running && !_wlTop.CloseRequested)
             {
                 presentIters++;
+                // macOS: the core worker doesn't pump SDL (must be main-thread only), so the present(main)
+                // loop refreshes gamepad/joystick state here each frame; the core reads cached button/axis
+                // state thread-safely. Keyboard arrives via OnGlKey inside PumpEvents below.
+                if (OperatingSystem.IsMacOS() && !_noInputPoll) _input.Poll();
                 _wlTop.PumpEvents();   // drain input first so a click/hover affects THIS frame's HUD
 
                 double nowMs = clock.Elapsed.TotalMilliseconds;
