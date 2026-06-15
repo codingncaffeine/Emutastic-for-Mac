@@ -1,0 +1,777 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--
+      Avalonia translation of the upstream WPF Themes/DarkTheme.xaml. The color palette is verbatim
+      (identical hex → identical look). WPF ControlTemplates/Triggers become Avalonia ControlThemes with
+      :pointerover / :pressed pseudo-classes; base controls (ScrollBar, ComboBox, Menu, TabControl) lean
+      on FluentTheme styled with these accent tokens, refined in later splinters. Consumers use
+      {DynamicResource …Brush} so ThemeService can re-theme live.
+    -->
+
+    <!-- ── COLORS (verbatim from upstream) ── -->
+    <Color x:Key="BgPrimaryColor">#0F0F10</Color>
+    <Color x:Key="BgSecondaryColor">#181819</Color>
+    <Color x:Key="BgTertiaryColor">#1F1F21</Color>
+    <Color x:Key="BgQuaternaryColor">#272729</Color>
+    <Color x:Key="BorderSubtleColor">#1A1A1C</Color>
+    <Color x:Key="BorderNormalColor">#2A2A2D</Color>
+    <Color x:Key="TextPrimaryColor">#F0F0F0</Color>
+    <Color x:Key="TextSecondaryColor">#8A8A90</Color>
+    <Color x:Key="TextMutedColor">#555558</Color>
+    <Color x:Key="AccentColor">#E03535</Color>
+    <Color x:Key="AccentHoverColor">#EB5555</Color>
+    <Color x:Key="GreenColor">#28C840</Color>
+    <Color x:Key="ScrollThumbColor">#484849</Color>
+    <Color x:Key="ScrollThumbHoverColor">#666668</Color>
+    <Color x:Key="ScrollThumbDragColor">#888889</Color>
+    <Color x:Key="ScrollTrackColor">#222224</Color>
+    <Color x:Key="PlayBtnBgColor">#2C2C2E</Color>
+    <Color x:Key="PlayBtnBorderColor">#3A3A3C</Color>
+    <Color x:Key="PlayBtnHoverBgColor">#3A3A3C</Color>
+    <Color x:Key="PlayBtnHoverBorderColor">#48484A</Color>
+    <Color x:Key="PlayBtnPressedBgColor">#1C1C1E</Color>
+    <Color x:Key="AccentPressedColor">#C02020</Color>
+    <Color x:Key="AccentDisabledColor">#6B2020</Color>
+    <Color x:Key="TrafficYellowColor">#FEBC2E</Color>
+    <Color x:Key="TrafficYellowHoverColor">#E5A800</Color>
+    <Color x:Key="TrafficGreenHoverColor">#1FA832</Color>
+    <Color x:Key="TrafficRedColor">#FF5F57</Color>
+    <Color x:Key="TrafficRedHoverColor">#E5453D</Color>
+    <Color x:Key="OverlayBgColor">#121214</Color>
+    <Color x:Key="ShadowColor">#000000</Color>
+    <Color x:Key="PillBgColor">#2D2D2D</Color>
+    <Color x:Key="PillBorderColor">#1A1A1A</Color>
+    <Color x:Key="PillHoverBgColor">#555555</Color>
+    <Color x:Key="PillPressedBgColor">#3D3D3D</Color>
+    <Color x:Key="PillFgColor">#E0E0E0</Color>
+    <Color x:Key="PillMutedFgColor">#A0A0A0</Color>
+    <Color x:Key="SurfaceColor">#3A3A3E</Color>
+    <Color x:Key="SurfaceHoverColor">#2E2E32</Color>
+    <Color x:Key="SurfaceActiveColor">#4A4A4F</Color>
+    <Color x:Key="ContentBgColor">#0C0C0E</Color>
+    <Color x:Key="WarningColor">#FFB347</Color>
+    <Color x:Key="PillGroupBgColor">#1E1E1E</Color>
+    <Color x:Key="AchievementGoldColor">#FFD700</Color>
+    <Color x:Key="FavoriteHeartColor">#FF6B6B</Color>
+
+    <!-- ── BRUSHES ── -->
+    <SolidColorBrush x:Key="BgPrimaryBrush"     Color="{StaticResource BgPrimaryColor}"/>
+    <SolidColorBrush x:Key="BgSecondaryBrush"   Color="{StaticResource BgSecondaryColor}"/>
+    <SolidColorBrush x:Key="BgTertiaryBrush"    Color="{StaticResource BgTertiaryColor}"/>
+    <SolidColorBrush x:Key="BgQuaternaryBrush"  Color="{StaticResource BgQuaternaryColor}"/>
+    <SolidColorBrush x:Key="BorderSubtleBrush"  Color="{StaticResource BorderSubtleColor}"/>
+    <SolidColorBrush x:Key="BorderNormalBrush"  Color="{StaticResource BorderNormalColor}"/>
+    <SolidColorBrush x:Key="TextPrimaryBrush"   Color="{StaticResource TextPrimaryColor}"/>
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}"/>
+    <SolidColorBrush x:Key="TextMutedBrush"     Color="{StaticResource TextMutedColor}"/>
+    <SolidColorBrush x:Key="AccentBrush"        Color="{StaticResource AccentColor}"/>
+    <SolidColorBrush x:Key="AccentHoverBrush"   Color="{StaticResource AccentHoverColor}"/>
+    <SolidColorBrush x:Key="GreenBrush"         Color="{StaticResource GreenColor}"/>
+    <SolidColorBrush x:Key="ShadowBrush"        Color="{StaticResource ShadowColor}"/>
+    <SolidColorBrush x:Key="OverlayBgBrush"     Color="{StaticResource OverlayBgColor}"/>
+    <SolidColorBrush x:Key="AccentPressedBrush" Color="{StaticResource AccentPressedColor}"/>
+    <SolidColorBrush x:Key="AccentDisabledBrush" Color="{StaticResource AccentDisabledColor}"/>
+    <SolidColorBrush x:Key="ScrollThumbBrush"   Color="{StaticResource ScrollThumbColor}"/>
+    <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="{StaticResource ScrollThumbHoverColor}"/>
+    <SolidColorBrush x:Key="ScrollThumbDragBrush"  Color="{StaticResource ScrollThumbDragColor}"/>
+    <SolidColorBrush x:Key="ScrollTrackBrush"   Color="{StaticResource ScrollTrackColor}"/>
+    <SolidColorBrush x:Key="PlayBtnBgBrush"     Color="{StaticResource PlayBtnBgColor}"/>
+    <SolidColorBrush x:Key="PlayBtnBorderBrush" Color="{StaticResource PlayBtnBorderColor}"/>
+    <SolidColorBrush x:Key="PlayBtnHoverBgBrush" Color="{StaticResource PlayBtnHoverBgColor}"/>
+    <SolidColorBrush x:Key="PlayBtnHoverBorderBrush" Color="{StaticResource PlayBtnHoverBorderColor}"/>
+    <SolidColorBrush x:Key="PlayBtnPressedBgBrush" Color="{StaticResource PlayBtnPressedBgColor}"/>
+    <SolidColorBrush x:Key="TrafficYellowBrush" Color="{StaticResource TrafficYellowColor}"/>
+    <SolidColorBrush x:Key="TrafficYellowHoverBrush" Color="{StaticResource TrafficYellowHoverColor}"/>
+    <SolidColorBrush x:Key="TrafficGreenHoverBrush" Color="{StaticResource TrafficGreenHoverColor}"/>
+    <SolidColorBrush x:Key="TrafficRedBrush"    Color="{StaticResource TrafficRedColor}"/>
+    <SolidColorBrush x:Key="TrafficRedHoverBrush" Color="{StaticResource TrafficRedHoverColor}"/>
+    <SolidColorBrush x:Key="PillBgBrush"        Color="{StaticResource PillBgColor}"/>
+    <SolidColorBrush x:Key="PillBorderBrush"    Color="{StaticResource PillBorderColor}"/>
+    <SolidColorBrush x:Key="PillHoverBgBrush"   Color="{StaticResource PillHoverBgColor}"/>
+    <SolidColorBrush x:Key="PillPressedBgBrush" Color="{StaticResource PillPressedBgColor}"/>
+    <SolidColorBrush x:Key="PillFgBrush"        Color="{StaticResource PillFgColor}"/>
+    <SolidColorBrush x:Key="PillMutedFgBrush"   Color="{StaticResource PillMutedFgColor}"/>
+    <SolidColorBrush x:Key="SurfaceBrush"       Color="{StaticResource SurfaceColor}"/>
+    <SolidColorBrush x:Key="SurfaceHoverBrush"  Color="{StaticResource SurfaceHoverColor}"/>
+    <SolidColorBrush x:Key="SurfaceActiveBrush" Color="{StaticResource SurfaceActiveColor}"/>
+    <SolidColorBrush x:Key="ContentBgBrush"     Color="{StaticResource ContentBgColor}"/>
+    <SolidColorBrush x:Key="WarningBrush"       Color="{StaticResource WarningColor}"/>
+    <SolidColorBrush x:Key="AchievementGoldBrush" Color="{StaticResource AchievementGoldColor}"/>
+    <SolidColorBrush x:Key="PillGroupBgBrush"   Color="{StaticResource PillGroupBgColor}"/>
+    <SolidColorBrush x:Key="FavoriteHeartBrush" Color="{StaticResource FavoriteHeartColor}"/>
+
+    <!-- ── ENGRAVED-METALLIC TOOLBAR PALETTE (verbatim from upstream MainWindow.xaml) ──
+         The toolbar tab toggles, view toggles and list column headers are all chiseled
+         "raised metal" segments: a vertical charcoal gradient, a 1px black chisel border,
+         a 1px top highlight; when selected they invert to a recessed darker fill with a
+         top inner shadow + bottom rim light + OpenEmu-blue text. -->
+    <LinearGradientBrush x:Key="ToolbarRaisedFillBrush" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0.0"  Color="#FF3A3A3A"/>
+        <GradientStop Offset="0.5"  Color="#FF2A2A2A"/>
+        <GradientStop Offset="0.51" Color="#FF222222"/>
+        <GradientStop Offset="1.0"  Color="#FF161616"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="ToolbarPressedFillBrush" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0.0" Color="#FF111111"/>
+        <GradientStop Offset="1.0" Color="#FF1E1E1E"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="ToolbarHoverFillBrush" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0.0"  Color="#FF424242"/>
+        <GradientStop Offset="0.5"  Color="#FF323232"/>
+        <GradientStop Offset="0.51" Color="#FF2A2A2A"/>
+        <GradientStop Offset="1.0"  Color="#FF1E1E1E"/>
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="ToolbarChiselBrush"       Color="#FF0B0B0B"/>
+    <SolidColorBrush x:Key="ToolbarTopHighlightBrush" Color="#26FFFFFF"/>
+    <SolidColorBrush x:Key="ToolbarTopShadowBrush"    Color="#80000000"/>
+    <SolidColorBrush x:Key="ToolbarBottomRimBrush"    Color="#33FFFFFF"/>
+    <SolidColorBrush x:Key="ToolbarRaisedTextBrush"   Color="#FFE8E8E8"/>
+    <SolidColorBrush x:Key="ToolbarPressedTextBrush"  Color="#FF3D8ADE"/>
+    <!-- Recessed search field: chisel border + a dark top-to-bottom gradient
+         (lighter at the bottom = light coming from above into the inset). -->
+    <LinearGradientBrush x:Key="SearchFillBrush" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0.0" Color="#FF1A1A1A"/>
+        <GradientStop Offset="0.5" Color="#FF222222"/>
+        <GradientStop Offset="1.0" Color="#FF2A2A2A"/>
+    </LinearGradientBrush>
+
+    <!-- ── TYPOGRAPHY ──
+         Upstream uses "Segoe UI Variable" (Windows-only). On Linux we use Inter (bundled via
+         Avalonia.Fonts.Inter) with sans-serif fallback; ★/☆/♥ data glyphs resolve via system
+         font fallback (Noto). User can revisit the face later. -->
+    <FontFamily x:Key="PrimaryFont">Inter, Noto Sans, sans-serif</FontFamily>
+
+    <!-- ── SIDEBAR ITEM BUTTON ── -->
+    <ControlTheme x:Key="SidebarItemStyle" TargetType="Button">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding" Value="10,7"/>
+        <Setter Property="Margin" Value="6,1"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="FontFamily" Value="{DynamicResource PrimaryFont}"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="border" Background="{TemplateBinding Background}" CornerRadius="6"
+                        Padding="{TemplateBinding Padding}">
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover /template/ Border#border">
+            <Setter Property="Background" Value="{DynamicResource BgTertiaryBrush}"/>
+        </Style>
+        <Style Selector="^:pointerover">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+        <Style Selector="^:pressed /template/ Border#border">
+            <Setter Property="Background" Value="{DynamicResource BgQuaternaryBrush}"/>
+        </Style>
+        <!-- Persistent highlight on the currently-selected library/console (set in code-behind on
+             navigation) — same fill as hover, so it stays lit to show which console you're in. -->
+        <Style Selector="^.selected /template/ Border#border">
+            <Setter Property="Background" Value="{DynamicResource BgTertiaryBrush}"/>
+        </Style>
+        <Style Selector="^.selected">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+    </ControlTheme>
+
+    <!-- ── PRIMARY (accent) BUTTON ── -->
+    <ControlTheme x:Key="PrimaryButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding" Value="20,10"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="FontFamily" Value="{DynamicResource PrimaryFont}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="border" Background="{TemplateBinding Background}" CornerRadius="7"
+                        Padding="{TemplateBinding Padding}">
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover /template/ Border#border">
+            <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+        </Style>
+        <Style Selector="^:pressed /template/ Border#border">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+            <Setter Property="Opacity" Value="0.85"/>
+        </Style>
+    </ControlTheme>
+
+    <!-- ── PLAY BUTTON ── -->
+    <ControlTheme x:Key="PlayButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="{DynamicResource PlayBtnBgBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource PlayBtnBorderBrush}"/>
+        <Setter Property="Padding" Value="20,10"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="FontFamily" Value="{DynamicResource PrimaryFont}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="border" Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                        CornerRadius="7" Padding="{TemplateBinding Padding}">
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover /template/ Border#border">
+            <Setter Property="Background" Value="{DynamicResource PlayBtnHoverBgBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource PlayBtnHoverBorderBrush}"/>
+        </Style>
+        <Style Selector="^:pressed /template/ Border#border">
+            <Setter Property="Background" Value="{DynamicResource PlayBtnPressedBgBrush}"/>
+        </Style>
+    </ControlTheme>
+
+    <!-- ── SECONDARY BUTTON ── -->
+    <ControlTheme x:Key="SecondaryButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="{DynamicResource BgTertiaryBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtleBrush}"/>
+        <Setter Property="Padding" Value="16,10"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontFamily" Value="{DynamicResource PrimaryFont}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="border" Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                        CornerRadius="7" Padding="{TemplateBinding Padding}">
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover /template/ Border#border">
+            <Setter Property="Background" Value="{DynamicResource BgQuaternaryBrush}"/>
+        </Style>
+        <Style Selector="^:pointerover">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+    </ControlTheme>
+
+    <!-- ── SIDEBAR EXPANDER (flat manufacturer groups) ──
+         Replaces Fluent's boxy expander with upstream's flat look: transparent header,
+         muted SemiBold caption, small left chevron that rotates when expanded. -->
+    <ControlTheme x:Key="SidebarExpander" TargetType="Expander">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}"/>
+        <Setter Property="Template">
+            <ControlTemplate>
+                <StackPanel>
+                    <ToggleButton Name="header"
+                                  IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                  Content="{TemplateBinding Header}"
+                                  Background="Transparent" BorderThickness="0" Padding="18,8,0,4"
+                                  Cursor="Hand" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                  Foreground="{DynamicResource TextMutedBrush}" FontSize="10" FontWeight="SemiBold">
+                        <ToggleButton.Template>
+                            <ControlTemplate>
+                                <!-- Flat muted caption only — NO chevron/box, so the group reads as a
+                                     plain section header (still toggles collapse on click). -->
+                                <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter Content="{TemplateBinding Content}" VerticalAlignment="Center"/>
+                                </Border>
+                            </ControlTemplate>
+                        </ToggleButton.Template>
+                    </ToggleButton>
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      IsVisible="{TemplateBinding IsExpanded}" Margin="0,0,0,6"/>
+                </StackPanel>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^ /template/ ToggleButton#header:pointerover">
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+        </Style>
+    </ControlTheme>
+
+    <!-- ── TOOLBAR TAB TOGGLES (Library / Save States / Screenshots / Achievements) ──
+         The engraved-metallic segmented recipe from upstream (TabToggleLeft/Middle/Right).
+         Three keys differ only in corner rounding so the buttons read as one connected
+         segment; the 1px chisel borders meeting between segments form a crisp divider.
+         Selected → recessed pressed fill, top inner shadow, bottom rim light, blue text. -->
+    <ControlTheme x:Key="TabToggleLeft" TargetType="ToggleButton">
+        <Setter Property="Foreground" Value="{DynamicResource ToolbarRaisedTextBrush}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource PrimaryFont}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="FontWeight" Value="Medium"/>
+        <Setter Property="Padding" Value="14,6"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="outerBorder" Background="{DynamicResource ToolbarRaisedFillBrush}"
+                        BorderBrush="{DynamicResource ToolbarChiselBrush}" BorderThickness="1"
+                        CornerRadius="6,0,0,6">
+                    <Panel>
+                        <Border Name="topInner" BorderBrush="{DynamicResource ToolbarTopHighlightBrush}"
+                                BorderThickness="0,1,0,0" CornerRadius="5,0,0,5"/>
+                        <Border Name="bottomRim" BorderBrush="{DynamicResource ToolbarBottomRimBrush}"
+                                BorderThickness="0,0,0,1" CornerRadius="0,0,0,5" IsVisible="False"/>
+                        <ContentPresenter Name="content" Content="{TemplateBinding Content}"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          Margin="{TemplateBinding Padding}">
+                            <ContentPresenter.Effect>
+                                <DropShadowEffect BlurRadius="0" OffsetX="0" OffsetY="1" Opacity="0.85" Color="Black"/>
+                            </ContentPresenter.Effect>
+                        </ContentPresenter>
+                    </Panel>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover /template/ Border#outerBorder"><Setter Property="Background" Value="{DynamicResource ToolbarHoverFillBrush}"/></Style>
+        <Style Selector="^:checked"><Setter Property="Foreground" Value="{DynamicResource ToolbarPressedTextBrush}"/></Style>
+        <Style Selector="^:checked /template/ Border#outerBorder"><Setter Property="Background" Value="{DynamicResource ToolbarPressedFillBrush}"/></Style>
+        <Style Selector="^:checked /template/ Border#topInner">
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolbarTopShadowBrush}"/>
+            <Setter Property="BorderThickness" Value="0,2,0,0"/>
+        </Style>
+        <Style Selector="^:checked /template/ Border#bottomRim"><Setter Property="IsVisible" Value="True"/></Style>
+    </ControlTheme>
+
+    <ControlTheme x:Key="TabToggleMiddle" TargetType="ToggleButton" BasedOn="{StaticResource TabToggleLeft}">
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="outerBorder" Background="{DynamicResource ToolbarRaisedFillBrush}"
+                        BorderBrush="{DynamicResource ToolbarChiselBrush}" BorderThickness="1"
+                        CornerRadius="0">
+                    <Panel>
+                        <Border Name="topInner" BorderBrush="{DynamicResource ToolbarTopHighlightBrush}"
+                                BorderThickness="0,1,0,0"/>
+                        <Border Name="bottomRim" BorderBrush="{DynamicResource ToolbarBottomRimBrush}"
+                                BorderThickness="0,0,0,1" IsVisible="False"/>
+                        <ContentPresenter Name="content" Content="{TemplateBinding Content}"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          Margin="{TemplateBinding Padding}">
+                            <ContentPresenter.Effect>
+                                <DropShadowEffect BlurRadius="0" OffsetX="0" OffsetY="1" Opacity="0.85" Color="Black"/>
+                            </ContentPresenter.Effect>
+                        </ContentPresenter>
+                    </Panel>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </ControlTheme>
+
+    <ControlTheme x:Key="TabToggleRight" TargetType="ToggleButton" BasedOn="{StaticResource TabToggleLeft}">
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="outerBorder" Background="{DynamicResource ToolbarRaisedFillBrush}"
+                        BorderBrush="{DynamicResource ToolbarChiselBrush}" BorderThickness="1"
+                        CornerRadius="0,6,6,0">
+                    <Panel>
+                        <Border Name="topInner" BorderBrush="{DynamicResource ToolbarTopHighlightBrush}"
+                                BorderThickness="0,1,0,0" CornerRadius="0,5,0,0"/>
+                        <Border Name="bottomRim" BorderBrush="{DynamicResource ToolbarBottomRimBrush}"
+                                BorderThickness="0,0,0,1" CornerRadius="0,0,5,0" IsVisible="False"/>
+                        <ContentPresenter Name="content" Content="{TemplateBinding Content}"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          Margin="{TemplateBinding Padding}">
+                            <ContentPresenter.Effect>
+                                <DropShadowEffect BlurRadius="0" OffsetX="0" OffsetY="1" Opacity="0.85" Color="Black"/>
+                            </ContentPresenter.Effect>
+                        </ContentPresenter>
+                    </Panel>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </ControlTheme>
+
+    <!-- ── VIEW-MODE TOGGLES (grid / list) ── same metallic recipe; the icon is drawn
+         in-template as vector rectangles whose fill flips to the blue accent when active. -->
+    <ControlTheme x:Key="ViewGridToggle" TargetType="ToggleButton">
+        <Setter Property="Width" Value="32"/>
+        <Setter Property="Height" Value="26"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="outerBorder" Background="{DynamicResource ToolbarRaisedFillBrush}"
+                        BorderBrush="{DynamicResource ToolbarChiselBrush}" BorderThickness="1"
+                        CornerRadius="6,0,0,6">
+                    <Panel>
+                        <Border Name="topInner" BorderBrush="{DynamicResource ToolbarTopHighlightBrush}"
+                                BorderThickness="0,1,0,0" CornerRadius="5,0,0,5"/>
+                        <Border Name="bottomRim" BorderBrush="{DynamicResource ToolbarBottomRimBrush}"
+                                BorderThickness="0,0,0,1" CornerRadius="0,0,0,5" IsVisible="False"/>
+                        <Viewbox Width="14" Height="14" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Canvas Width="14" Height="14">
+                                <Rectangle Name="G1" Canvas.Left="0" Canvas.Top="0" Width="6" Height="6" Fill="{DynamicResource ToolbarRaisedTextBrush}"/>
+                                <Rectangle Name="G2" Canvas.Left="8" Canvas.Top="0" Width="6" Height="6" Fill="{DynamicResource ToolbarRaisedTextBrush}"/>
+                                <Rectangle Name="G3" Canvas.Left="0" Canvas.Top="8" Width="6" Height="6" Fill="{DynamicResource ToolbarRaisedTextBrush}"/>
+                                <Rectangle Name="G4" Canvas.Left="8" Canvas.Top="8" Width="6" Height="6" Fill="{DynamicResource ToolbarRaisedTextBrush}"/>
+                            </Canvas>
+                        </Viewbox>
+                    </Panel>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover /template/ Border#outerBorder"><Setter Property="Background" Value="{DynamicResource ToolbarHoverFillBrush}"/></Style>
+        <Style Selector="^:checked /template/ Border#outerBorder"><Setter Property="Background" Value="{DynamicResource ToolbarPressedFillBrush}"/></Style>
+        <Style Selector="^:checked /template/ Border#topInner">
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolbarTopShadowBrush}"/>
+            <Setter Property="BorderThickness" Value="0,2,0,0"/>
+        </Style>
+        <Style Selector="^:checked /template/ Border#bottomRim"><Setter Property="IsVisible" Value="True"/></Style>
+        <Style Selector="^:checked /template/ Rectangle"><Setter Property="Fill" Value="{DynamicResource ToolbarPressedTextBrush}"/></Style>
+    </ControlTheme>
+
+    <ControlTheme x:Key="ViewListToggle" TargetType="ToggleButton">
+        <Setter Property="Width" Value="32"/>
+        <Setter Property="Height" Value="26"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="outerBorder" Background="{DynamicResource ToolbarRaisedFillBrush}"
+                        BorderBrush="{DynamicResource ToolbarChiselBrush}" BorderThickness="0,1,1,1"
+                        CornerRadius="0,6,6,0">
+                    <Panel>
+                        <Border Name="topInner" BorderBrush="{DynamicResource ToolbarTopHighlightBrush}"
+                                BorderThickness="0,1,0,0" CornerRadius="0,5,0,0"/>
+                        <Border Name="bottomRim" BorderBrush="{DynamicResource ToolbarBottomRimBrush}"
+                                BorderThickness="0,0,0,1" CornerRadius="0,0,5,0" IsVisible="False"/>
+                        <Viewbox Width="14" Height="14" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Canvas Width="14" Height="14">
+                                <Rectangle Name="L1" Canvas.Left="0" Canvas.Top="0"   Width="14" Height="3" Fill="{DynamicResource ToolbarRaisedTextBrush}"/>
+                                <Rectangle Name="L2" Canvas.Left="0" Canvas.Top="5.5" Width="14" Height="3" Fill="{DynamicResource ToolbarRaisedTextBrush}"/>
+                                <Rectangle Name="L3" Canvas.Left="0" Canvas.Top="11"  Width="14" Height="3" Fill="{DynamicResource ToolbarRaisedTextBrush}"/>
+                            </Canvas>
+                        </Viewbox>
+                    </Panel>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover /template/ Border#outerBorder"><Setter Property="Background" Value="{DynamicResource ToolbarHoverFillBrush}"/></Style>
+        <Style Selector="^:checked /template/ Border#outerBorder"><Setter Property="Background" Value="{DynamicResource ToolbarPressedFillBrush}"/></Style>
+        <Style Selector="^:checked /template/ Border#topInner">
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolbarTopShadowBrush}"/>
+            <Setter Property="BorderThickness" Value="0,2,0,0"/>
+        </Style>
+        <Style Selector="^:checked /template/ Border#bottomRim"><Setter Property="IsVisible" Value="True"/></Style>
+        <Style Selector="^:checked /template/ Rectangle"><Setter Property="Fill" Value="{DynamicResource ToolbarPressedTextBrush}"/></Style>
+    </ControlTheme>
+
+    <!-- ── 2D / 3D BOX-ART TOGGLE ── same engraved-metallic segmented recipe as the view
+         toggles, but with a "2D"/"3D" text label. Appears next to the grid/list toggles only
+         when the current view has 3D box art (matches upstream BoxArt2D/BoxArt3D). -->
+    <ControlTheme x:Key="BoxArt2DToggle" TargetType="ToggleButton">
+        <Setter Property="Width" Value="28"/>
+        <Setter Property="Height" Value="26"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="outerBorder" Background="{DynamicResource ToolbarRaisedFillBrush}"
+                        BorderBrush="{DynamicResource ToolbarChiselBrush}" BorderThickness="1"
+                        CornerRadius="6,0,0,6">
+                    <Panel>
+                        <Border Name="topInner" BorderBrush="{DynamicResource ToolbarTopHighlightBrush}"
+                                BorderThickness="0,1,0,0" CornerRadius="5,0,0,5"/>
+                        <Border Name="bottomRim" BorderBrush="{DynamicResource ToolbarBottomRimBrush}"
+                                BorderThickness="0,0,0,1" CornerRadius="0,0,0,5" IsVisible="False"/>
+                        <TextBlock Name="lbl" Text="2D" FontSize="9" FontWeight="SemiBold"
+                                   FontFamily="{DynamicResource PrimaryFont}"
+                                   Foreground="{DynamicResource ToolbarRaisedTextBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock.Effect>
+                                <DropShadowEffect BlurRadius="0" OffsetX="0" OffsetY="1" Opacity="0.85" Color="Black"/>
+                            </TextBlock.Effect>
+                        </TextBlock>
+                    </Panel>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover /template/ Border#outerBorder"><Setter Property="Background" Value="{DynamicResource ToolbarHoverFillBrush}"/></Style>
+        <Style Selector="^:checked /template/ Border#outerBorder"><Setter Property="Background" Value="{DynamicResource ToolbarPressedFillBrush}"/></Style>
+        <Style Selector="^:checked /template/ Border#topInner">
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolbarTopShadowBrush}"/>
+            <Setter Property="BorderThickness" Value="0,2,0,0"/>
+        </Style>
+        <Style Selector="^:checked /template/ Border#bottomRim"><Setter Property="IsVisible" Value="True"/></Style>
+        <Style Selector="^:checked /template/ TextBlock#lbl"><Setter Property="Foreground" Value="{DynamicResource ToolbarPressedTextBrush}"/></Style>
+    </ControlTheme>
+
+    <ControlTheme x:Key="BoxArt3DToggle" TargetType="ToggleButton">
+        <Setter Property="Width" Value="28"/>
+        <Setter Property="Height" Value="26"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="outerBorder" Background="{DynamicResource ToolbarRaisedFillBrush}"
+                        BorderBrush="{DynamicResource ToolbarChiselBrush}" BorderThickness="0,1,1,1"
+                        CornerRadius="0,6,6,0">
+                    <Panel>
+                        <Border Name="topInner" BorderBrush="{DynamicResource ToolbarTopHighlightBrush}"
+                                BorderThickness="0,1,0,0" CornerRadius="0,5,0,0"/>
+                        <Border Name="bottomRim" BorderBrush="{DynamicResource ToolbarBottomRimBrush}"
+                                BorderThickness="0,0,0,1" CornerRadius="0,0,5,0" IsVisible="False"/>
+                        <TextBlock Name="lbl" Text="3D" FontSize="9" FontWeight="SemiBold"
+                                   FontFamily="{DynamicResource PrimaryFont}"
+                                   Foreground="{DynamicResource ToolbarRaisedTextBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock.Effect>
+                                <DropShadowEffect BlurRadius="0" OffsetX="0" OffsetY="1" Opacity="0.85" Color="Black"/>
+                            </TextBlock.Effect>
+                        </TextBlock>
+                    </Panel>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover /template/ Border#outerBorder"><Setter Property="Background" Value="{DynamicResource ToolbarHoverFillBrush}"/></Style>
+        <Style Selector="^:checked /template/ Border#outerBorder"><Setter Property="Background" Value="{DynamicResource ToolbarPressedFillBrush}"/></Style>
+        <Style Selector="^:checked /template/ Border#topInner">
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolbarTopShadowBrush}"/>
+            <Setter Property="BorderThickness" Value="0,2,0,0"/>
+        </Style>
+        <Style Selector="^:checked /template/ Border#bottomRim"><Setter Property="IsVisible" Value="True"/></Style>
+        <Style Selector="^:checked /template/ TextBlock#lbl"><Setter Property="Foreground" Value="{DynamicResource ToolbarPressedTextBrush}"/></Style>
+    </ControlTheme>
+
+    <!-- ── TOOLBAR SPACING SLIDER ── per-console card-spacing slider in the toolbar. Fully custom
+         (compact) template — a thin centered rail + a small brushed-metal disc thumb (classic-Mac
+         palette, hardcoded so it reads the same in every theme). The default Fluent slider is too
+         tall and its thumb too large for the 26px toolbar pill, so we retemplate rather than tweak. -->
+
+    <!-- Invisible track button: fills the space on each side of the thumb so a track click still
+         moves the value, but paints nothing. -->
+    <ControlTheme x:Key="ToolbarSliderTrackButton" TargetType="RepeatButton">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Template">
+            <ControlTemplate TargetType="RepeatButton">
+                <Border Background="Transparent"/>
+            </ControlTemplate>
+        </Setter>
+    </ControlTheme>
+
+    <!-- Small brushed-metal disc thumb (12px). -->
+    <ControlTheme x:Key="ToolbarSpacingSliderThumb" TargetType="Thumb">
+        <Setter Property="Width" Value="12"/>
+        <Setter Property="Height" Value="12"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Template">
+            <ControlTemplate TargetType="Thumb">
+                <Panel>
+                    <Ellipse Stroke="#5A5A5A" StrokeThickness="1">
+                        <Ellipse.Fill>
+                            <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                                <GradientStop Offset="0.0"  Color="#F2F2F2"/>
+                                <GradientStop Offset="0.55" Color="#C8C8C8"/>
+                                <GradientStop Offset="1.0"  Color="#8A8A8A"/>
+                            </LinearGradientBrush>
+                        </Ellipse.Fill>
+                    </Ellipse>
+                    <!-- specular highlight on the top half for the 3D pop -->
+                    <Ellipse Width="6" Height="3" VerticalAlignment="Top" Margin="0,2,0,0">
+                        <Ellipse.Fill>
+                            <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                                <GradientStop Offset="0.0" Color="#80FFFFFF"/>
+                                <GradientStop Offset="1.0" Color="#00FFFFFF"/>
+                            </LinearGradientBrush>
+                        </Ellipse.Fill>
+                    </Ellipse>
+                </Panel>
+            </ControlTemplate>
+        </Setter>
+    </ControlTheme>
+
+    <ControlTheme x:Key="ToolbarSpacingSlider" TargetType="Slider">
+        <Setter Property="MinHeight" Value="0"/>
+        <Setter Property="Height" Value="24"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Template">
+            <ControlTemplate TargetType="Slider">
+                <Grid VerticalAlignment="Center">
+                    <!-- thin recessed rail, vertically centered -->
+                    <Border Height="4" CornerRadius="2" VerticalAlignment="Center"
+                            Background="{DynamicResource ToolbarChiselBrush}"/>
+                    <Track Name="PART_Track" Orientation="Horizontal"
+                           Minimum="{TemplateBinding Minimum}"
+                           Maximum="{TemplateBinding Maximum}"
+                           Value="{TemplateBinding Value, Mode=TwoWay}">
+                        <Track.DecreaseButton>
+                            <RepeatButton Theme="{StaticResource ToolbarSliderTrackButton}"/>
+                        </Track.DecreaseButton>
+                        <Track.IncreaseButton>
+                            <RepeatButton Theme="{StaticResource ToolbarSliderTrackButton}"/>
+                        </Track.IncreaseButton>
+                        <Track.Thumb>
+                            <Thumb Theme="{StaticResource ToolbarSpacingSliderThumb}"/>
+                        </Track.Thumb>
+                    </Track>
+                </Grid>
+            </ControlTemplate>
+        </Setter>
+    </ControlTheme>
+
+    <!-- ── SEARCH FIELD TEXTBOX ── strips all of Fluent's chrome (border + the focus
+         underline adorner) so the recessed Border that wraps it is the only visible frame.
+         Without this the stock TextBox paints a box and an accent underline on focus. -->
+    <ControlTheme x:Key="SearchTextBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="MinHeight" Value="0"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Style Selector="^ /template/ Border#PART_BorderElement">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+        </Style>
+        <Style Selector="^:pointerover /template/ Border#PART_BorderElement">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+        </Style>
+        <Style Selector="^:focus /template/ Border#PART_BorderElement">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+    </ControlTheme>
+
+    <!-- ── DARK COMBOBOX (Preferences panels) ──
+         Recolors the Fluent ComboBox dark to match the app chrome (the dropdown
+         popup already follows the Dark theme variant). Deferred from M4a; folded
+         in at U5 since every Preferences panel uses it. -->
+    <ControlTheme x:Key="DarkComboBox" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+        <Setter Property="Background" Value="{DynamicResource BgTertiaryBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderNormalBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="6"/>
+        <Setter Property="FontFamily" Value="{DynamicResource PrimaryFont}"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="MinHeight" Value="32"/>
+        <Setter Property="Padding" Value="10,0"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Style Selector="^ /template/ Border#Background">
+            <Setter Property="Background" Value="{DynamicResource BgTertiaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderNormalBrush}"/>
+        </Style>
+        <Style Selector="^:pointerover /template/ Border#Background">
+            <Setter Property="Background" Value="{DynamicResource BgQuaternaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderNormalBrush}"/>
+        </Style>
+        <Style Selector="^:focus /template/ Border#Background">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+        </Style>
+    </ControlTheme>
+
+    <!-- ── TEXT STYLES (applied via Theme=) ── -->
+    <ControlTheme x:Key="LabelMuted" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{DynamicResource PrimaryFont}"/>
+        <Setter Property="FontSize" Value="10"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}"/>
+    </ControlTheme>
+    <ControlTheme x:Key="TextPrimary" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{DynamicResource PrimaryFont}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        <Setter Property="FontSize" Value="13"/>
+    </ControlTheme>
+    <ControlTheme x:Key="TextSecondary" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{DynamicResource PrimaryFont}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+        <Setter Property="FontSize" Value="12"/>
+    </ControlTheme>
+
+    <!-- ══ Window title-bar buttons — 3 swappable styles (Preferences → Theme → Window Style) ══
+         App.ApplyWindowButtonStyle points Active{Min,Max,Close}Button at one of these sets; the
+         title bars bind Theme="{DynamicResource Active*Button}" so the choice applies live. ── -->
+
+    <!-- macOS traffic-lights (the default look) -->
+    <ControlTheme x:Key="MacMinButton" TargetType="Button">
+        <Setter Property="Width" Value="13"/><Setter Property="Height" Value="13"/><Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template"><ControlTemplate><Ellipse Fill="{DynamicResource TrafficYellowBrush}"/></ControlTemplate></Setter>
+        <Style Selector="^:pointerover"><Setter Property="Opacity" Value="0.8"/></Style>
+    </ControlTheme>
+    <ControlTheme x:Key="MacMaxButton" TargetType="Button">
+        <Setter Property="Width" Value="13"/><Setter Property="Height" Value="13"/><Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template"><ControlTemplate><Ellipse Fill="{DynamicResource GreenBrush}"/></ControlTemplate></Setter>
+        <Style Selector="^:pointerover"><Setter Property="Opacity" Value="0.8"/></Style>
+    </ControlTheme>
+    <ControlTheme x:Key="MacCloseButton" TargetType="Button">
+        <Setter Property="Width" Value="13"/><Setter Property="Height" Value="13"/><Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template"><ControlTemplate><Ellipse Fill="{DynamicResource TrafficRedBrush}"/></ControlTemplate></Setter>
+        <Style Selector="^:pointerover"><Setter Property="Opacity" Value="0.8"/></Style>
+    </ControlTheme>
+
+    <!-- Windows 11 — flat square buttons with glyphs; gray hover, red close hover -->
+    <ControlTheme x:Key="Win11MinButton" TargetType="Button">
+        <Setter Property="Width" Value="46"/><Setter Property="Height" Value="32"/><Setter Property="VerticalAlignment" Value="Top"/><Setter Property="Cursor" Value="Arrow"/>
+        <Setter Property="Template"><ControlTemplate>
+            <Border Name="bg" Background="Transparent" CornerRadius="0">
+                <TextBlock Name="g" Text="&#x2212;" FontSize="14" Foreground="{DynamicResource TextPrimaryBrush}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border></ControlTemplate></Setter>
+        <Style Selector="^:pointerover /template/ Border#bg"><Setter Property="Background" Value="#22FFFFFF"/></Style>
+    </ControlTheme>
+    <ControlTheme x:Key="Win11MaxButton" TargetType="Button">
+        <Setter Property="Width" Value="46"/><Setter Property="Height" Value="32"/><Setter Property="VerticalAlignment" Value="Top"/><Setter Property="Cursor" Value="Arrow"/>
+        <Setter Property="Template"><ControlTemplate>
+            <Border Name="bg" Background="Transparent" CornerRadius="0">
+                <TextBlock Name="g" Text="&#x25A1;" FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border></ControlTemplate></Setter>
+        <Style Selector="^:pointerover /template/ Border#bg"><Setter Property="Background" Value="#22FFFFFF"/></Style>
+    </ControlTheme>
+    <ControlTheme x:Key="Win11CloseButton" TargetType="Button">
+        <Setter Property="Width" Value="46"/><Setter Property="Height" Value="32"/><Setter Property="VerticalAlignment" Value="Top"/><Setter Property="Cursor" Value="Arrow"/>
+        <Setter Property="Template"><ControlTemplate>
+            <Border Name="bg" Background="Transparent" CornerRadius="0">
+                <TextBlock Name="g" Text="&#x2715;" FontSize="14" Foreground="{DynamicResource TextPrimaryBrush}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border></ControlTemplate></Setter>
+        <!-- Actual Windows 11 close-button red (#C42B1C); pressed dims to 90% opacity. The old
+             #E81123 was the brighter Windows 10 red ("blood red"). -->
+        <Style Selector="^:pointerover /template/ Border#bg"><Setter Property="Background" Value="#C42B1C"/></Style>
+        <Style Selector="^:pointerover /template/ TextBlock#g"><Setter Property="Foreground" Value="White"/></Style>
+        <Style Selector="^:pressed /template/ Border#bg"><Setter Property="Background" Value="#E6C42B1C"/></Style>
+        <Style Selector="^:pressed /template/ TextBlock#g"><Setter Property="Foreground" Value="White"/></Style>
+    </ControlTheme>
+
+    <!-- Linux-native (Adwaita/Breeze-ish) — round buttons with a subtle fill + glyph -->
+    <ControlTheme x:Key="LinuxMinButton" TargetType="Button">
+        <Setter Property="Width" Value="24"/><Setter Property="Height" Value="24"/><Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template"><ControlTemplate>
+            <Border Name="bg" Background="#26FFFFFF" CornerRadius="12">
+                <TextBlock Name="g" Text="&#x2212;" FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border></ControlTemplate></Setter>
+        <Style Selector="^:pointerover /template/ Border#bg"><Setter Property="Background" Value="#40FFFFFF"/></Style>
+    </ControlTheme>
+    <ControlTheme x:Key="LinuxMaxButton" TargetType="Button">
+        <Setter Property="Width" Value="24"/><Setter Property="Height" Value="24"/><Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template"><ControlTemplate>
+            <Border Name="bg" Background="#26FFFFFF" CornerRadius="12">
+                <TextBlock Name="g" Text="&#x25A1;" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border></ControlTemplate></Setter>
+        <Style Selector="^:pointerover /template/ Border#bg"><Setter Property="Background" Value="#40FFFFFF"/></Style>
+    </ControlTheme>
+    <ControlTheme x:Key="LinuxCloseButton" TargetType="Button">
+        <Setter Property="Width" Value="24"/><Setter Property="Height" Value="24"/><Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template"><ControlTemplate>
+            <Border Name="bg" Background="#26FFFFFF" CornerRadius="12">
+                <TextBlock Name="g" Text="&#x2715;" FontSize="11" Foreground="{DynamicResource TextPrimaryBrush}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border></ControlTemplate></Setter>
+        <Style Selector="^:pointerover /template/ Border#bg"><Setter Property="Background" Value="#E04B4B"/></Style>
+        <Style Selector="^:pointerover /template/ TextBlock#g"><Setter Property="Foreground" Value="White"/></Style>
+    </ControlTheme>
+
+</ResourceDictionary>

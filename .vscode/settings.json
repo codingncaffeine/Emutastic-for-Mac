@@ -1,0 +1,12 @@
+{
+  "dotnet.defaultSolution": "src/Emutastic.slnx",
+  "files.exclude": {
+    "**/bin": true,
+    "**/obj": true
+  },
+  "search.exclude": {
+    "**/reference/**": true,
+    "**/bin/**": true,
+    "**/obj/**": true
+  }
+}
