@@ -116,9 +116,11 @@
           DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 
-  <!-- libvkpresent.dylib (macOS only): the Vulkan (MoltenVK) hardware-render context for 3D cores
-       that render via Vulkan (ParaLLEl-RDP N64, Beetle-PSX-Vulkan, …), built from native/vkpresent/.
-       libMoltenVK.dylib is shipped alongside it (libvkpresent finds it via @rpath/@loader_path). -->
+  <!-- libvkpresent.dylib (macOS only): the Vulkan hardware-render context for 3D cores (N64 ParaLLEl-RDP,
+       GameCube Dolphin, 3DS Azahar, …), built from native/vkpresent/. It links the Vulkan LOADER
+       (libvulkan.1.dylib) — needed so cores resolve promoted KHR/EXT function aliases — which reaches
+       MoltenVK via the ICD. In the Debug output the loader uses the Homebrew MoltenVK ICD; the .app bundle
+       ships its own ICD (build-app.sh). All copied next to libvkpresent (@rpath/@loader_path). -->
   <Target Name="BuildMacVk" BeforeTargets="Build"
           Condition="$([MSBuild]::IsOSPlatform('OSX'))"
           Inputs="$(MSBuildProjectDirectory)/../../native/vkpresent/macvk.c;$(MSBuildProjectDirectory)/../../native/vkpresent/build.sh"
@@ -128,10 +130,15 @@
   <Target Name="CopyMacVk" AfterTargets="BuildMacVk;Build"
           Condition="$([MSBuild]::IsOSPlatform('OSX')) And Exists('$(MSBuildProjectDirectory)/../../native/vkpresent/libvkpresent.dylib')">
     <Copy SourceFiles="$(MSBuildProjectDirectory)/../../native/vkpresent/libvkpresent.dylib"
-          DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
-    <!-- Resolve the brew symlink to the real MoltenVK dylib so the copied file is the binary itself. -->
+          DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" OverwriteReadOnlyFiles="true" />
+    <!-- The Vulkan loader (libvkpresent links @rpath/libvulkan.1.dylib) + MoltenVK (loaded via the ICD).
+         Resolve brew symlinks so the copies are the real binaries. OverwriteReadOnlyFiles: the brew
+         sources are mode 444, so re-copies over a prior read-only copy would otherwise fail. -->
+    <Copy SourceFiles="/opt/homebrew/lib/libvulkan.1.dylib"
+          DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" OverwriteReadOnlyFiles="true"
+          Condition="Exists('/opt/homebrew/lib/libvulkan.1.dylib')" />
     <Copy SourceFiles="/opt/homebrew/opt/molten-vk/lib/libMoltenVK.dylib"
-          DestinationFolder="$(OutDir)" SkipUnchangedFiles="true"
+          DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" OverwriteReadOnlyFiles="true"
           Condition="Exists('/opt/homebrew/opt/molten-vk/lib/libMoltenVK.dylib')" />
   </Target>
 

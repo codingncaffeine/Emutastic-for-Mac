@@ -20,6 +20,8 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <time.h>
+#include <dlfcn.h>                    // dladdr — locate our own dylib to find the bundled MoltenVK ICD
+#include <sys/stat.h>
 
 // ── libretro Vulkan interface (inlined from libretro_vulkan.h, exact layout) ────────────────────────
 #define RETRO_HW_RENDER_INTERFACE_VULKAN 0
@@ -180,9 +182,34 @@ void vkp_hw_set_negotiation(const void *neg) {
     V.neg = (const struct retro_hw_render_context_negotiation_interface_vulkan*)neg;
 }
 
+// Point the Vulkan loader at MoltenVK's ICD before any loader call. Prefer a MoltenVK_icd.json bundled
+// next to this dylib (Contents/MacOS, library_path="libMoltenVK.dylib"), else the Homebrew location.
+// Don't override a user-set value. Must run before vkEnumerateInstance*.
+static void setup_icd(void) {
+    if (getenv("VK_ICD_FILENAMES") || getenv("VK_DRIVER_FILES")) return;
+    char icd[1200] = {0}; struct stat st;
+    Dl_info di;
+    if (dladdr((void*)setup_icd, &di) && di.dli_fname) {
+        char dir[1024]; strncpy(dir, di.dli_fname, sizeof dir - 1); dir[sizeof dir - 1] = 0;
+        char *slash = strrchr(dir, '/'); if (slash) *slash = 0;
+        snprintf(icd, sizeof icd, "%s/MoltenVK_icd.json", dir);
+        if (stat(icd, &st) != 0) icd[0] = 0;   // not bundled next to us
+    }
+    if (!icd[0]) {
+        const char *cands[] = { "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json",
+                                "/opt/homebrew/share/vulkan/icd.d/MoltenVK_icd.json",
+                                "/usr/local/share/vulkan/icd.d/MoltenVK_icd.json" };
+        for (int i = 0; i < 3; i++) if (stat(cands[i], &st) == 0) { strncpy(icd, cands[i], sizeof icd - 1); break; }
+    }
+    if (icd[0]) { setenv("VK_ICD_FILENAMES", icd, 1); setenv("VK_DRIVER_FILES", icd, 1);
+                  fprintf(stderr, "[macvk] VK ICD = %s\n", icd); }
+    else fprintf(stderr, "[macvk] no MoltenVK ICD found — loader may fail to find a driver\n");
+}
+
 int vkp_hw_init(int ctx_type, int major, int minor, int want_depth, int want_stencil, int maxw, int maxh) {
     (void)ctx_type; (void)want_depth; (void)want_stencil; (void)maxw; (void)maxh;
     pthread_mutex_init(&V.qlock, NULL);
+    setup_icd();   // before the first loader call (vkEnumerateInstanceVersion below)
 
     // apiVersion. For Vulkan HW-render, libretro passes the core's MINIMUM required Vulkan version
     // in `major` (retro_hw_render_callback.version_major), VK_MAKE_VERSION-encoded — e.g. ParaLLEl-RDP

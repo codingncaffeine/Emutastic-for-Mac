@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Builds libvkpresent.dylib — the macOS Vulkan (MoltenVK) hardware-render backend for 3D libretro cores
-# (ParaLLEl-RDP N64, Beetle-PSX-Vulkan, …). Links MoltenVK directly (no Vulkan loader / ICD JSON needed)
-# and finds it at runtime via @loader_path (libMoltenVK.dylib is shipped next to it). macOS only.
+# Builds libvkpresent.dylib — the macOS Vulkan hardware-render backend for 3D libretro cores (ParaLLEl-RDP
+# N64, Dolphin GameCube, Azahar 3DS, …). Links the Vulkan LOADER (libvulkan), NOT MoltenVK directly — the
+# loader's vkGetInstanceProcAddr resolves promoted KHR/EXT function aliases that cores (e.g. Azahar via
+# Vulkan-Hpp) load through our interface; MoltenVK-direct does not, which crashed them. The loader reaches
+# MoltenVK through the ICD (VK_ICD_FILENAMES, set in macvk at runtime). All three dylibs ship together
+# (@loader_path): libvkpresent + libvulkan + libMoltenVK + the MoltenVK ICD JSON. macOS only.
 set -euo pipefail
 cd "$(dirname "$0")"
 [ "$(uname)" = "Darwin" ] || { echo "[macvk] not macOS — skipping"; exit 0; }
@@ -12,14 +15,14 @@ echo "[macvk] compiling libvkpresent.dylib with $CC (headers: $VKINC)"
 "$CC" -O2 -fPIC -Wall -Wno-deprecated-declarations -I"$VKINC" \
       -dynamiclib -install_name "@rpath/libvkpresent.dylib" \
       -o libvkpresent.dylib macvk.c \
-      -L"$BREW/lib" -lMoltenVK -Wl,-rpath,@loader_path \
+      -L"$BREW/lib" -lvulkan -Wl,-rpath,@loader_path \
       -framework QuartzCore -framework Foundation -lobjc   # CAMetalLayer for the offscreen VkSurfaceKHR
 
-# Homebrew's libMoltenVK bakes in an absolute install_name; rewrite our dependency on it to
-# @rpath so the dylib is relocatable — at runtime it's found next to us (rpath = @loader_path),
-# i.e. libMoltenVK.dylib shipped alongside libvkpresent.dylib. Keeps dev == bundle identical.
-MVK_ABS="$(otool -L libvkpresent.dylib | awk '/libMoltenVK/{print $1; exit}')"
-if [ -n "${MVK_ABS:-}" ] && [ "$MVK_ABS" != "@rpath/libMoltenVK.dylib" ]; then
-  install_name_tool -change "$MVK_ABS" "@rpath/libMoltenVK.dylib" libvkpresent.dylib
+# Make the loader dependency relocatable (@rpath) so libvulkan.*.dylib ships next to us.
+VK_ABS="$(otool -L libvkpresent.dylib | awk '/libvulkan/{print $1; exit}')"
+if [ -n "${VK_ABS:-}" ]; then
+  VK_BASE="$(basename "$VK_ABS")"
+  [ "$VK_ABS" != "@rpath/$VK_BASE" ] && install_name_tool -change "$VK_ABS" "@rpath/$VK_BASE" libvkpresent.dylib
+  echo "[macvk] loader dep: $VK_BASE"
 fi
 echo "[macvk] done -> $(pwd)/libvkpresent.dylib"
