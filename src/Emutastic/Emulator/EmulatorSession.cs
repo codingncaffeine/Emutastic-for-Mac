@@ -420,12 +420,16 @@ namespace Emutastic.Emulator
             switch (scancode)
             {
                 case SC_ESCAPE:
+                {
                     // Esc backs OUT of fullscreen to windowed (what users expect) rather than quitting.
-                    // Query the live SDL flag so it also catches macOS native (green-button) fullscreen,
-                    // not just our F11 toggle. Only quit when already windowed.
-                    if (_gl != null && _gl.IsFullscreen) { _glFullscreen = false; _gl.SetFullscreen(false); }
+                    // The active presenter is _gl on the inline path but _wlTop on the DECOUPLED path
+                    // (macOS uses decoupled — a GlPresenter stored in _wlTop), so check whichever is live.
+                    // IsFullscreen catches macOS native (green-button/Cmd-Ctrl-F) fullscreen too.
+                    IGamePresenter? present = (IGamePresenter?)_gl ?? _wlTop;
+                    if (present != null && present.IsFullscreen) { _glFullscreen = false; present.SetFullscreen(false); }
                     else _running = false;
                     break;
+                }
                 case SC_F11:    _glFullscreen = !_glFullscreen; _gl?.SetFullscreen(_glFullscreen); break;
                 case SC_P:      _paused = !_paused; break;
                 case SC_F5:     RequestSaveState("Quick Save"); break;   // upstream's F5 quick save
@@ -2071,13 +2075,41 @@ namespace Emutastic.Emulator
                     if (data != IntPtr.Zero) Marshal.WriteByte(data, (byte)(_coreOptionsDirty ? 1 : 0));
                     return true;
                 case ENV_GET_CORE_OPTIONS_VERSION:
-                    // Report v0 so cores use the simple SET_VARIABLES path (v2-capable cores downgrade
-                    // cleanly); v2's display/category metadata isn't needed to apply the options.
-                    if (data != IntPtr.Zero) Marshal.WriteInt32(data, 0);
+                    // Report v2 so cores announce their FULL option set via SET_CORE_OPTIONS(_V2). Some
+                    // options exist ONLY in the v2 definitions (e.g. Dolphin's dolphin_gfx_backend, needed
+                    // to select Vulkan on macOS) — a v0 frontend never receives them. All three announce
+                    // APIs funnel through IngestCoreOption, so the per-console handlers still govern.
+                    if (data != IntPtr.Zero) Marshal.WriteInt32(data, 2);
                     return true;
                 case ENV_SET_VARIABLES:
                     ParseSetVariables(data);
                     return true;
+                case 56: // RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER (unsigned*) — multi-backend cores
+                         // (Dolphin, Flycast) pick their renderer from this. Answer only when the console
+                         // handler declares a preference (>=0); the -1 default leaves 2D/SW cores untouched.
+                    if (_handler.PreferredHwContext >= 0 && data != IntPtr.Zero)
+                    {
+                        Marshal.WriteInt32(data, _handler.PreferredHwContext);
+                        Trace.WriteLine($"[Emu] GET_PREFERRED_HW_RENDER → {_handler.PreferredHwContext} (0=none 3=GL-core 6=Vulkan)");
+                        return true;
+                    }
+                    return false;
+                case 53: // RETRO_ENVIRONMENT_SET_CORE_OPTIONS — v1 definition array (no categories)
+                    ParseCoreOptionDefinitions(data, v2: false);
+                    return true;
+                case 54: // RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL — { retro_core_option_definition* us; local; }
+                    ParseCoreOptionDefinitions(data == IntPtr.Zero ? IntPtr.Zero : Marshal.ReadIntPtr(data, 0), v2: false);
+                    return true;
+                case 67: // RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2 — { categories*; definitions* } (defs @ +8)
+                    ParseCoreOptionDefinitions(data == IntPtr.Zero ? IntPtr.Zero : Marshal.ReadIntPtr(data, 8), v2: true);
+                    return true;
+                case 68: // RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL — { v2* us; v2* local }; us.definitions @ +8
+                {
+                    if (data == IntPtr.Zero) return true;
+                    IntPtr us = Marshal.ReadIntPtr(data, 0);
+                    ParseCoreOptionDefinitions(us == IntPtr.Zero ? IntPtr.Zero : Marshal.ReadIntPtr(us, 8), v2: true);
+                    return true;
+                }
                 case ENV_SET_DISK_CONTROL_INTERFACE:
                 case ENV_SET_DISK_CONTROL_EXT_INTERFACE:
                     // Capture the core's disk callbacks so we can insert disk 0 after load (FDS).
@@ -2197,34 +2229,81 @@ namespace Emutastic.Emulator
                     string? desc = Marshal.PtrToStringAnsi(v.value);
                     if (string.IsNullOrEmpty(key) || desc == null) continue;
 
-                    int semi = desc.IndexOf(';');
+                int semi = desc.IndexOf(';');
                     string opts = semi >= 0 ? desc[(semi + 1)..] : desc;
                     string[] vals = opts.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-                    vals = _handler.FilterCoreOptionValues(key!, vals) ?? vals;
-                    _handler.OnVariableAnnounced(key!, vals, _coreOptions);
-
-                    if (vals.Length == 0) continue;
-                    // Default an unseeded key to the first valid value; also repair a seeded value the
-                    // core wouldn't accept (not in its valid set) so we never feed it a bad option.
-                    if (!_coreOptions.TryGetValue(key!, out var cur) || Array.IndexOf(vals, cur) < 0)
-                        _coreOptions[key!] = vals[0];
-
-                    // Capture for the Preferences tab (filtered values, like upstream — the combo must
-                    // not offer values FilterCoreOptionValues removed, e.g. GameCube's buggy 1x/2x).
-                    _coreOptionSchema.Add(new Models.CoreOptionEntry
-                    {
-                        Key = key!,
-                        Description = semi >= 0 ? desc[..semi].Trim() : key!,
-                        ValidValues = vals,
-                        DefaultValue = vals[0],
-                    });
+                    IngestCoreOption(key!, semi >= 0 ? desc[..semi].Trim() : key!, vals, null);
                 }
                 _coreOptionsDirty = true;
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Trace.WriteLine($"[Emu] SET_VARIABLES parse failed: {ex.Message}");
+            }
+        }
+
+        // Shared option ingestion for ALL the libretro option-announce APIs (legacy SET_VARIABLES, v1
+        // SET_CORE_OPTIONS, v2 SET_CORE_OPTIONS_V2). Routing everything through here keeps each console
+        // governed by its handler regardless of how the core announces — no per-API behaviour drift:
+        //   FilterCoreOptionValues (drop bad values) → OnVariableAnnounced (handler picks/repairs) →
+        //   seed an unseeded/invalid key to the core's default → capture the schema for Preferences.
+        // coreDefault: the core's declared default (v1/v2 only); null → first valid value (legacy behaviour).
+        private void IngestCoreOption(string key, string desc, string[] vals, string? coreDefault)
+        {
+            vals = _handler.FilterCoreOptionValues(key, vals) ?? vals;
+            _handler.OnVariableAnnounced(key, vals, _coreOptions);
+            if (vals.Length == 0) return;
+            string def = (coreDefault != null && Array.IndexOf(vals, coreDefault) >= 0) ? coreDefault : vals[0];
+            // Default an unseeded key to the core's default; also repair a seeded value the core wouldn't
+            // accept (not in its valid set) so we never feed it a bad option.
+            if (!_coreOptions.TryGetValue(key, out var cur) || Array.IndexOf(vals, cur) < 0)
+                _coreOptions[key] = def;
+            _coreOptionSchema.Add(new Models.CoreOptionEntry
+            {
+                Key = key, Description = string.IsNullOrEmpty(desc) ? key : desc, ValidValues = vals, DefaultValue = def,
+            });
+        }
+
+        // Parse the v1 (SET_CORE_OPTIONS) / v2 (SET_CORE_OPTIONS_V2) definition array. Both are a
+        // NULL-key-terminated array of fixed-size structs holding an inline retro_core_option_value
+        // values[RETRO_NUM_CORE_OPTION_VALUES_MAX=128] array (each {const char* value; const char* label;}).
+        // We read pointers by offset (no marshalled struct) — the layouts differ only by the extra v2
+        // category/categorized fields before the values array. 64-bit pointer layout.
+        private const int CORE_OPT_VALUES_MAX = 128;
+        private void ParseCoreOptionDefinitions(IntPtr defs, bool v2)
+        {
+            if (defs == IntPtr.Zero) return;
+            try
+            {
+                _coreOptionSchema.Clear();   // a core announces via exactly one API; latest set wins
+                int valsOff = v2 ? 48 : 24;                       // key,desc,(desc_cat,info,info_cat,category|info) ptrs
+                int defaultOff = valsOff + CORE_OPT_VALUES_MAX * 16;
+                int stride = defaultOff + 8;                      // + default_value ptr
+                IntPtr p = defs;
+                for (int n = 0; n < 4096; n++, p = IntPtr.Add(p, stride))
+                {
+                    IntPtr keyPtr = Marshal.ReadIntPtr(p, 0);
+                    if (keyPtr == IntPtr.Zero) break;            // {NULL,…} terminator
+                    string? key = Marshal.PtrToStringAnsi(keyPtr);
+                    if (string.IsNullOrEmpty(key)) continue;
+                    string desc = Marshal.PtrToStringAnsi(Marshal.ReadIntPtr(p, 8)) ?? key;
+
+                    var vals = new List<string>(8);
+                    for (int i = 0; i < CORE_OPT_VALUES_MAX; i++)
+                    {
+                        IntPtr vptr = Marshal.ReadIntPtr(p, valsOff + i * 16);   // .value (ignore .label)
+                        if (vptr == IntPtr.Zero) break;
+                        string? vs = Marshal.PtrToStringAnsi(vptr);
+                        if (!string.IsNullOrEmpty(vs)) vals.Add(vs);
+                    }
+                    string? def = Marshal.PtrToStringAnsi(Marshal.ReadIntPtr(p, defaultOff));
+                    IngestCoreOption(key!, desc, vals.ToArray(), def);
+                }
+                _coreOptionsDirty = true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"[Emu] SET_CORE_OPTIONS{(v2 ? "_V2" : "")} parse failed: {ex.Message}");
             }
         }
 

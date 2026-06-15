@@ -10,7 +10,10 @@
 // Threading: lives on the emu/worker thread; the core may submit to our queue from any thread, guarded by
 // lock_queue/unlock_queue (a mutex). Synchronous readback (copy + fence wait) — simple + correct first;
 // async ring can come later. MoltenVK 1.4 on Apple M4 verified to enumerate the device.
+#define VK_USE_PLATFORM_METAL_EXT 1   // VkMetalSurfaceCreateInfoEXT / vkCreateMetalSurfaceEXT
 #include <vulkan/vulkan.h>
+#include <objc/runtime.h>             // create a CAMetalLayer for cores that require a real VkSurfaceKHR
+#include <objc/message.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -74,6 +77,7 @@ struct retro_hw_render_interface_vulkan {
                              // data. 3 gives the GPU two frames of slack so a busy frame doesn't stall us.
 static struct {
     VkInstance instance;
+    VkSurfaceKHR surface;    // offscreen Metal surface — some cores (Dolphin) require a real one
     VkPhysicalDevice gpu;
     VkDevice device;
     VkQueue queue;
@@ -203,17 +207,22 @@ int vkp_hw_init(int ctx_type, int major, int minor, int want_depth, int want_ste
     const VkApplicationInfo *app = &defApp;
     if (V.neg && V.neg->get_application_info) { const VkApplicationInfo *a = V.neg->get_application_info(); if (a) app = a; }
 
-    // Enable only the instance extensions actually advertised (MoltenVK lists both, but be defensive).
+    // Enable only the instance extensions actually advertised (MoltenVK lists all of these, but be
+    // defensive). VK_KHR_surface + VK_EXT_metal_surface let us build a real VkSurfaceKHR — cores like
+    // Dolphin assert on a non-NULL surface in their negotiation create_device even though they fake the
+    // swapchain into set_image. portability_enumeration is needed for MoltenVK device enumeration.
     uint32_t navail = 0; vkEnumerateInstanceExtensionProperties(NULL, &navail, NULL);
     VkExtensionProperties avail[256]; if (navail > 256) navail = 256;
     vkEnumerateInstanceExtensionProperties(NULL, &navail, avail);
-    const char *want[] = { "VK_KHR_get_physical_device_properties2", "VK_KHR_portability_enumeration" };
-    const char *enabled[2]; uint32_t nen = 0; int hasPortability = 0;
-    for (uint32_t w = 0; w < 2; w++)
+    const char *want[] = { "VK_KHR_get_physical_device_properties2", "VK_KHR_portability_enumeration",
+                           "VK_KHR_surface", "VK_EXT_metal_surface" };
+    const char *enabled[8]; uint32_t nen = 0; int hasPortability = 0, hasMetalSurface = 0;
+    for (uint32_t w = 0; w < sizeof(want)/sizeof(want[0]); w++)
         for (uint32_t i = 0; i < navail; i++)
             if (strcmp(want[w], avail[i].extensionName) == 0) {
                 enabled[nen++] = want[w];
-                if (w == 1) hasPortability = 1;
+                if (strcmp(want[w], "VK_KHR_portability_enumeration") == 0) hasPortability = 1;
+                if (strcmp(want[w], "VK_EXT_metal_surface") == 0)          hasMetalSurface = 1;
                 break;
             }
 
@@ -228,6 +237,22 @@ int vkp_hw_init(int ctx_type, int major, int minor, int want_depth, int want_ste
         return 0;
     }
 
+    // Build an offscreen Metal surface (CAMetalLayer). Dolphin's create_device requires it; ParaLLEl-RDP
+    // ignores it. We never present through it — the core's "swapchain" hands images to our set_image.
+    if (hasMetalSurface) {
+        Class cls = objc_getClass("CAMetalLayer");
+        id layer = cls ? ((id(*)(id, SEL))objc_msgSend)((id)cls, sel_registerName("layer")) : NULL;
+        if (layer) ((id(*)(id, SEL))objc_msgSend)(layer, sel_registerName("retain"));   // outlive autorelease
+        PFN_vkCreateMetalSurfaceEXT createMetal =
+            (PFN_vkCreateMetalSurfaceEXT)vkGetInstanceProcAddr(V.instance, "vkCreateMetalSurfaceEXT");
+        if (layer && createMetal) {
+            VkMetalSurfaceCreateInfoEXT mi = { VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT };
+            mi.pLayer = (const void *)layer;
+            if (createMetal(V.instance, &mi, NULL, &V.surface) != VK_SUCCESS) V.surface = VK_NULL_HANDLE;
+        }
+        fprintf(stderr, "[macvk] Metal surface %s\n", V.surface ? "created" : "FAILED (Dolphin-class cores need it)");
+    }
+
     uint32_t ndev = 0; vkEnumeratePhysicalDevices(V.instance, &ndev, NULL);
     if (ndev == 0) { fprintf(stderr, "[macvk] no Vulkan devices\n"); return 0; }
     VkPhysicalDevice devs[8]; if (ndev > 8) ndev = 8;
@@ -239,7 +264,7 @@ int vkp_hw_init(int ctx_type, int major, int minor, int want_depth, int want_ste
     if (V.neg && V.neg->create_device) {
         struct retro_vulkan_context ctx; memset(&ctx, 0, sizeof ctx);
         VkPhysicalDeviceFeatures feats; vkGetPhysicalDeviceFeatures(V.gpu, &feats);
-        if (V.neg->create_device(&ctx, V.instance, V.gpu, VK_NULL_HANDLE, vkGetInstanceProcAddr, NULL, 0, NULL, 0, &feats)
+        if (V.neg->create_device(&ctx, V.instance, V.gpu, V.surface, vkGetInstanceProcAddr, NULL, 0, NULL, 0, &feats)
             && ctx.device != VK_NULL_HANDLE) {
             V.gpu = ctx.gpu; V.device = ctx.device; V.queue = ctx.queue; V.qfi = ctx.queue_family_index; V.ownDevice = 0;
             made = 1;
@@ -449,12 +474,24 @@ int vkp_hw_readback(void *out, int cur_w, int cur_h, int bottom_left, int *out_w
         tm0 = now_ms();
         const uint32_t *s32 = (const uint32_t*)V.rbMap[read];
         uint32_t *o32 = (uint32_t*)out;
-        int swizzle = (V.rbFmt[read] == VK_FORMAT_R8G8B8A8_UNORM || V.rbFmt[read] == VK_FORMAT_R8G8B8A8_SRGB);
+        VkFormat fmt = V.rbFmt[read];
         long n = (long)V.rbW[read] * V.rbH[read];
-        // 32-bit-at-a-time (auto-vectorizes to NEON on arm64) — the byte-by-byte loop was ~2.3ms/frame at
-        // 8x. RGBA pixel in memory = 0xAABBGGRR; we want opaque BGRA = 0xFFRRGGBB → swap R/B, force A=0xFF.
-        if (swizzle) for (long i = 0; i < n; i++) { uint32_t p = s32[i]; o32[i] = 0xFF000000u | ((p & 0x000000FFu) << 16) | (p & 0x0000FF00u) | ((p >> 16) & 0x000000FFu); }
-        else         for (long i = 0; i < n; i++) o32[i] = s32[i] | 0xFF000000u;
+        // Convert the core's pixel format to opaque BGRA8 (presented as GL_BGRA: byte order B,G,R,0xFF).
+        // 32-bit-at-a-time (auto-vectorizes to NEON on arm64).
+        if (fmt == VK_FORMAT_A2B10G10R10_UNORM_PACK32) {
+            // Dolphin renders to 10-bit on Apple displays (its surface-format preference picks RGB10_A2
+            // over RGBA8). Packed LSB→MSB: R[0-9] G[10-19] B[20-29] A[30-31]; take the top 8 bits of each.
+            for (long i = 0; i < n; i++) { uint32_t p = s32[i];
+                o32[i] = 0xFF000000u | (((p >> 2) & 0xFFu) << 16) | (((p >> 12) & 0xFFu) << 8) | ((p >> 22) & 0xFFu); }
+        } else if (fmt == VK_FORMAT_R8G8B8A8_UNORM || fmt == VK_FORMAT_R8G8B8A8_SRGB) {
+            // RGBA in memory (0xAABBGGRR) → swap R/B, force alpha.
+            for (long i = 0; i < n; i++) { uint32_t p = s32[i]; o32[i] = 0xFF000000u | ((p & 0x000000FFu) << 16) | (p & 0x0000FF00u) | ((p >> 16) & 0x000000FFu); }
+        } else {
+            // BGRA already (or close enough) → just force opaque alpha.
+            for (long i = 0; i < n; i++) o32[i] = s32[i] | 0xFF000000u;
+        }
+        static VkFormat s_loggedFmt = (VkFormat)0;
+        if (fmt != s_loggedFmt) { s_loggedFmt = fmt; fprintf(stderr, "[macvk] readback pixel format = %d\n", (int)fmt); }
         int rw = V.rbW[read], rh = V.rbH[read];
         V.rbPending[read] = 0;
         if (out_w) *out_w = rw; if (out_h) *out_h = rh;

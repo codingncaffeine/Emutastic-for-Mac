@@ -581,13 +581,42 @@ namespace Emutastic.Platform
 
         public void SetFullscreen(bool fullscreen)
         {
-            if (_window != IntPtr.Zero) SDL_SetWindowFullscreen(_window, fullscreen);
+            if (_window == IntPtr.Zero) return;
+            if (fullscreen) { SDL_SetWindowFullscreen(_window, true); return; }
+            // Exiting: route by who initiated it, so we don't double-toggle (SDL's own macOS fullscreen is
+            // also a native space). SDL-initiated (flag set) → let SDL undo it. User-initiated native
+            // fullscreen (green button / Cmd-Ctrl-F; SDL didn't flag it) → toggle the NSWindow ourselves.
+            // toggleFullScreen: must run on the main thread — where PumpEvents/OnGlKey dispatch on macOS.
+            if ((SDL_GetWindowFlags(_window) & SDL_WINDOW_FULLSCREEN) != 0) SDL_SetWindowFullscreen(_window, false);
+            else if (MacNativeFullscreen()) MacToggleFullscreen();
         }
 
-        /// <summary>Live fullscreen state from SDL — true for BOTH our F11 toggle and macOS's native
-        /// (green-button / Cmd-Ctrl-F) fullscreen, since SDL's cocoa backend tracks the window flag.</summary>
+        /// <summary>Live fullscreen state — SDL's flag (our F11 toggle) OR the NSWindow's native
+        /// fullscreen-space style bit (the green button / Cmd-Ctrl-F, which SDL does NOT flag).</summary>
         public bool IsFullscreen =>
-            _window != IntPtr.Zero && (SDL_GetWindowFlags(_window) & SDL_WINDOW_FULLSCREEN) != 0;
+            _window != IntPtr.Zero &&
+            ((SDL_GetWindowFlags(_window) & SDL_WINDOW_FULLSCREEN) != 0 || MacNativeFullscreen());
+
+        // The underlying NSWindow* (macOS only), or Zero.
+        private IntPtr MacNsWindow()
+        {
+            if (!OperatingSystem.IsMacOS() || _window == IntPtr.Zero) return IntPtr.Zero;
+            try { return SDL_GetPointerProperty(SDL_GetWindowProperties(_window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, IntPtr.Zero); }
+            catch { return IntPtr.Zero; }
+        }
+        // True when the NSWindow is in a native fullscreen space (styleMask & NSWindowStyleMaskFullScreen).
+        private bool MacNativeFullscreen()
+        {
+            IntPtr w = MacNsWindow();
+            if (w == IntPtr.Zero) return false;
+            try { return (objc_msgSend_ulong(w, sel_registerName("styleMask")) & NSWindowStyleMaskFullScreen) != 0; }
+            catch { return false; }
+        }
+        private void MacToggleFullscreen()
+        {
+            IntPtr w = MacNsWindow();
+            if (w != IntPtr.Zero) { try { objc_msgSend_void_ptr(w, sel_registerName("toggleFullScreen:"), IntPtr.Zero); } catch { } }
+        }
 
         public void Dispose()
         {

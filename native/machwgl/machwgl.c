@@ -32,6 +32,10 @@ static struct {
     char info[256];
     double issue_ms, map_ms, mapcall_ms, copy_ms;
     volatile int tgt_w, tgt_h;
+    // Downscale-before-readback: blit the core's (upscaled) FBO down to the window size into this scratch
+    // FBO, then glReadPixels THAT — so readback cost is ~constant regardless of internal resolution
+    // (Dolphin GameCube at efb_scale 4x read back the full FBO at ~10ms; the blit makes it ~1ms).
+    GLuint dsFbo, dsTex; int dsW, dsH;
 } H;
 
 static void *g_glfw;   // OpenGL.framework handle for wlp_hw_proc
@@ -115,6 +119,34 @@ static void copy_flip_opaque(unsigned char *o, const unsigned char *src, int w, 
     for (int i = 3, n = stride * h; i < n; i += 4) o[i] = 0xFF;
 }
 
+// Downscaled readback size: the core frame (cw x ch) fitted to the window (tgt), never upscaling. The
+// blit preserves the core's aspect; display aspect is the separate DAR. tgt 0 → full-res readback.
+static void rb_size(int cw, int ch, int *rw, int *rh) {
+    int tw = H.tgt_w, th = H.tgt_h;
+    if (tw <= 0 || th <= 0 || (cw <= tw && ch <= th)) { *rw = cw; *rh = ch; return; }
+    double s = (double)tw / cw, sh = (double)th / ch; if (sh < s) s = sh;
+    int w = (int)(cw * s + 0.5), h = (int)(ch * s + 0.5);
+    *rw = w < 1 ? 1 : w; *rh = h < 1 ? 1 : h;
+}
+
+// Scratch downscale FBO at w x h (RGBA8, LINEAR for a clean supersample). Returns 1 if usable.
+static int ensure_ds(int w, int h) {
+    if (H.dsFbo && H.dsW == w && H.dsH == h) return 1;
+    if (!H.dsFbo) glGenFramebuffers(1, &H.dsFbo);
+    if (!H.dsTex) glGenTextures(1, &H.dsTex);
+    glBindTexture(GL_TEXTURE_2D, H.dsTex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glBindFramebuffer(GL_FRAMEBUFFER, H.dsFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, H.dsTex, 0);
+    GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, H.fbo);
+    if (st != GL_FRAMEBUFFER_COMPLETE) return 0;
+    H.dsW = w; H.dsH = h;
+    return 1;
+}
+
 static int s_dbg;
 int wlp_hw_readback(void *out, int cur_w, int cur_h, int bottom_left, int *out_w, int *out_h) {
     if (!H.ctx || !out || cur_w <= 0 || cur_h <= 0) return 0;
@@ -122,26 +154,38 @@ int wlp_hw_readback(void *out, int cur_w, int cur_h, int bottom_left, int *out_w
     if (cur_h > H.h) cur_h = H.h;
     double t0 = now_ms();
     GLenum errBefore = glGetError();   // errors left by the core's frame
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, H.fbo);
+
+    // GPU-downscale the core's FBO to the window size first (linear), then read back that — keeps the
+    // readback cheap regardless of internal resolution. glBlitFramebuffer preserves bottom-up orientation.
+    int rw, rh; rb_size(cur_w, cur_h, &rw, &rh);
+    GLuint readFbo = H.fbo;
+    if ((rw != cur_w || rh != cur_h) && ensure_ds(rw, rh)) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, H.fbo);
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, H.dsFbo);
+        glBlitFramebuffer(0, 0, cur_w, cur_h, 0, 0, rw, rh, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+        readFbo = H.dsFbo;
+    } else { rw = cur_w; rh = cur_h; }
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, readFbo);
     glReadBuffer(GL_COLOR_ATTACHMENT0);
     glPixelStorei(GL_PACK_ALIGNMENT, 4);
-    int need = cur_w * cur_h * 4;
+    int need = rw * rh * 4;
     if (need > H.rbcap) { free(H.rb); H.rb = (unsigned char*)malloc(need); H.rbcap = need; }
-    glReadPixels(0, 0, cur_w, cur_h, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, H.rb);
+    glReadPixels(0, 0, rw, rh, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, H.rb);
     GLenum errRead = glGetError();
-    copy_flip_opaque((unsigned char*)out, H.rb, cur_w, cur_h, bottom_left);
+    copy_flip_opaque((unsigned char*)out, H.rb, rw, rh, bottom_left);
     glBindFramebuffer(GL_FRAMEBUFFER, H.fbo);   // restore for the core's next draw
-    if (out_w) *out_w = cur_w;
-    if (out_h) *out_h = cur_h;
+    if (out_w) *out_w = rw;
+    if (out_h) *out_h = rh;
     H.issue_ms += 0.05 * ((now_ms() - t0) - H.issue_ms);
     // Diagnostics only when EMUTASTIC_GL_PERF is set — the nonzero scan walks every pixel, so it must
-    // not run in shipped binaries. (GL HW-render is unused for N64 on macOS; this path is for GL cores.)
+    // not run in shipped binaries.
     if (getenv("EMUTASTIC_GL_PERF") && (s_dbg < 3 || (s_dbg % 180) == 0)) {
-        long nz = 0, n = (long)cur_w * cur_h * 4;
+        long nz = 0, n = (long)rw * rh * 4;
         for (long i = 0; i < n; i++) if (H.rb[i]) nz++;
-        GLenum fbst = glCheckFramebufferStatus(GL_READ_FRAMEBUFFER);
-        fprintf(stderr, "[machwgl] readback #%d %dx%d errBefore=0x%x errRead=0x%x fboStatus=0x%x nonzero=%ld/%ld\n",
-                s_dbg, cur_w, cur_h, errBefore, errRead, fbst, nz, n);
+        fprintf(stderr, "[machwgl] readback #%d core %dx%d -> %dx%d errBefore=0x%x errRead=0x%x nonzero=%ld/%ld\n",
+                s_dbg, cur_w, cur_h, rw, rh, errBefore, errRead, nz, n);
     }
     s_dbg++;
     return 1;

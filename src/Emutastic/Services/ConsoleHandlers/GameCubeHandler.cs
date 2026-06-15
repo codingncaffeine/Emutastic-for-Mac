@@ -55,25 +55,27 @@ namespace Emutastic.Services.ConsoleHandlers
             ["dolphin_dsp_enable_jit"]         = "disabled",
             ["dolphin_dsp_hle"]                = "enabled",
             ["dolphin_skip_gc_bios"]           = "enabled",
-            // Force OpenGL — only a GL context is set up
+            // Backend selection is via GET_PREFERRED_HW_RENDER (PreferredHwContext below), NOT this option
+            // — this Dolphin build doesn't even expose dolphin_gfx_backend (only dolphin_renderer). Kept
+            // for Linux builds that do read it; harmless where the key is absent. macOS picks Vulkan via
+            // PreferredHwContext so Dolphin's Vulkan backend drives our libvkpresent HW-render path.
             ["dolphin_gfx_backend"]            = "OGL",
             ["dolphin_renderer"]               = "Hardware",
-            // Synchronous UBERSHADERS (mode 1) — the only compilation mode that needs no worker
-            // thread. Dolphin can't create its shader-compiler worker against our surfaceless EGL
-            // context ("Failed to create shared context for shader compiling"), so the default
-            // specialized mode (0) compiles EVERY new shader inline on the emu thread → 0-1fps
-            // slideshow until a scene's shaders are done (the Linux GameCube 1fps bug, 2026-06-03).
-            // Ubershaders compile a small fixed set on demand, cached globally and persistently
-            // (Saves/User/Cache/Shaders/OpenGL-uber-pipeline-*.cache) — measured 0-1fps → 57.8fps
-            // on Mario Kart DD once the cache warmed; fresh scenes still dip while it fills.
-            ["dolphin_shader_compilation_mode"] = "1",
+            // Shader compilation. macOS/Vulkan: mode 2 = Async (UberShaders) — render immediately with a
+            // generic ubershader while specialized shaders compile on a BACKGROUND worker, so no stutter
+            // and full speed. (Mode 1 forced sync-ubershaders compiling on the emu thread → ~9fps grind.)
+            // Vulkan can spawn the compile worker; the GL path could NOT (surfaceless-EGL "Failed to create
+            // shared context for shader compiling"), so off-macOS keeps mode 1 (sync ubershaders) to avoid
+            // the specialized-mode-0 inline-compile 0-1fps slideshow (the Linux GameCube 1fps bug).
+            ["dolphin_shader_compilation_mode"] = OperatingSystem.IsMacOS() ? "2" : "1",
             // Do NOT precompile the full uber set at boot: at this GPU's idle clocks that stalled
             // boot for 60s+. On-demand compiles amortize, and the global cache makes them one-time.
             ["dolphin_wait_for_shaders"]        = "disabled",
-            // Internal resolution. NOT 1x: at native res Dolphin's framebuffer-indirection
-            // render lands tucked in the bottom-left corner of our managed FBO (documented in
-            // the GameCube wiki page). The image fills the buffer correctly from ~3x up; 4x is
-            // the wiki's recommended "4K-equivalent" upscale and renders full-window out of the box.
+            // Internal resolution. NOT 1x: at native res Dolphin's framebuffer-indirection render lands
+            // tucked in the bottom-left corner of our managed FBO. Filled correctly from ~3x up. Default
+            // 4x (2560x2112) is a safe, sharp default; macOS holds locked 60 even at the core's max 6x
+            // (3840x3168 / 4K+) on the M4 thanks to JITArm64 + the downscale readback — users can crank it
+            // via the in-game "Internal Resolution" option (heavier titles may want to stay at 4x).
             ["dolphin_efb_scale"]              = "4",
 
             // ── Performance options ──────────────────────────────────────────
@@ -130,11 +132,13 @@ namespace Emutastic.Services.ConsoleHandlers
             string? pick;
             if (UseJit)
             {
-                // JIT64: native recompilation, ~5x faster than CachedInterpreter.
-                // fastmem is already disabled above so the VEH/SEH conflict is avoided.
-                pick = validValues.FirstOrDefault(v => v == "1")
-                    ?? validValues.FirstOrDefault(v => v.IndexOf("jit64", StringComparison.OrdinalIgnoreCase) >= 0)
-                    ?? validValues.FirstOrDefault(v => v.IndexOf("jit",   StringComparison.OrdinalIgnoreCase) >= 0);
+                // Native recompiler — ~10-20x faster than the PowerPC interpreter. The right JIT is
+                // ARCH-SPECIFIC and the core only lists the one valid for this build: JITArm64 ("4") on
+                // Apple Silicon / arm64, JIT64 ("1") on x86-64. (The old "1"-only lookup fell through to
+                // validValues[0]="0"=Interpreter on arm64 → the 9fps GameCube bug.) Values are numeric.
+                pick = validValues.FirstOrDefault(v => v == "4")     // CPUCore::JITArm64 (Apple Silicon)
+                    ?? validValues.FirstOrDefault(v => v == "1")     // CPUCore::JIT64 (x86-64)
+                    ?? validValues.FirstOrDefault(v => v.IndexOf("jit", StringComparison.OrdinalIgnoreCase) >= 0);
             }
             else
             {
@@ -159,9 +163,11 @@ namespace Emutastic.Services.ConsoleHandlers
         public override void OnBeforeContextReset() { /* no-op on Linux */ }
         public override void OnAfterContextReset()  { /* no-op on Linux */ }
 
-        // Dolphin needs OpenGL Core profile and requires shared context support.
-        // RETRO_HW_CONTEXT_OPENGL_CORE = 3
-        public override int PreferredHwContext => 3;
+        // Returned to Dolphin via GET_PREFERRED_HW_RENDER (env 56) — multi-backend cores pick their
+        // renderer from it. macOS: Vulkan (6) over MoltenVK → our libvkpresent HW-render path (downscale
+        // + async ring), since Dolphin's GL on Apple is degraded and can't pipeline glReadPixels.
+        // Elsewhere: OpenGL Core (3).
+        public override int PreferredHwContext => OperatingSystem.IsMacOS() ? 6 : 3;
         // With dolphin_main_cpu_thread=disabled Dolphin renders on retro_run's thread (our
         // _emuThread).  There is no separate Dolphin EmuThread, so we must NOT release the
         // GL context after context_reset — it must stay current for get_current_framebuffer
@@ -193,9 +199,10 @@ namespace Emutastic.Services.ConsoleHandlers
             return values;
         }
 
-        // Use the core's parent directory as the system directory so that
-        // dolphin-emu/Sys/ can be placed alongside dolphin_libretro.so.
+        // Dolphin looks for dolphin-emu/Sys under the system directory. Linux places it beside the core
+        // (coreDllDir). macOS keeps it in the standard libretro System dir (System/dolphin-emu/Sys), so
+        // return the default there.
         public override string ResolveSystemDirectory(string defaultDir, string coreDllDir)
-            => coreDllDir;
+            => OperatingSystem.IsMacOS() ? defaultDir : coreDllDir;
     }
 }

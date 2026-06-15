@@ -65,6 +65,9 @@ namespace Emutastic.Platform
         void StartResize(int edge);
         void SetCursorShape(int shape);
         void SetFullscreen(bool fullscreen);
+        /// <summary>True when the window is fullscreen (incl. macOS native). Default false for backends
+        /// that don't track it; GlPresenter overrides. Lets Esc exit fullscreen instead of quitting.</summary>
+        bool IsFullscreen => false;
 
         // ── deco layers / shaders / capture (guard with the capability flags) ──────────────────
         void SetBezel(byte[] rgba, int w, int h);

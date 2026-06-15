@@ -119,6 +119,16 @@ namespace Emutastic.Platform
         [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_PollEvent(byte[] ev);   // SDL_Event union; we only drain
         [DllImport(SDL)] public static extern IntPtr SDL_GetError();
         [DllImport(SDL)] public static extern uint SDL_GetWindowID(IntPtr window);
+        // Reach the underlying NSWindow so we can detect/exit macOS NATIVE fullscreen (green button /
+        // Cmd-Ctrl-F), which SDL does NOT report via SDL_WINDOW_FULLSCREEN.
+        [DllImport(SDL)] public static extern uint SDL_GetWindowProperties(IntPtr window);
+        [DllImport(SDL)] public static extern IntPtr SDL_GetPointerProperty(uint props, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, IntPtr defaultValue);
+        public const string SDL_PROP_WINDOW_COCOA_WINDOW_POINTER = "SDL.window.cocoa.window";
+        // Objective-C runtime (absolute path → bypasses the SDL/GL DllImport resolver).
+        [DllImport("/usr/lib/libobjc.A.dylib")] public static extern IntPtr sel_registerName([MarshalAs(UnmanagedType.LPStr)] string s);
+        [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_msgSend")] public static extern ulong objc_msgSend_ulong(IntPtr receiver, IntPtr sel);
+        [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_msgSend")] public static extern void  objc_msgSend_void_ptr(IntPtr receiver, IntPtr sel, IntPtr arg);
+        public const ulong NSWindowStyleMaskFullScreen = 1UL << 14;   // native macOS fullscreen-space bit
 
         // ---- GL 1.1 (BGRA texture → fullscreen quad, fixed-function; matches RetroArch gl1) ----
         public const uint GL_TEXTURE_2D = 0x0DE1, GL_RGBA = 0x1908, GL_RGBA8 = 0x8058, GL_BGRA = 0x80E1,

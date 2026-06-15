@@ -12,7 +12,8 @@ echo "[macvk] compiling libvkpresent.dylib with $CC (headers: $VKINC)"
 "$CC" -O2 -fPIC -Wall -Wno-deprecated-declarations -I"$VKINC" \
       -dynamiclib -install_name "@rpath/libvkpresent.dylib" \
       -o libvkpresent.dylib macvk.c \
-      -L"$BREW/lib" -lMoltenVK -Wl,-rpath,@loader_path
+      -L"$BREW/lib" -lMoltenVK -Wl,-rpath,@loader_path \
+      -framework QuartzCore -framework Foundation -lobjc   # CAMetalLayer for the offscreen VkSurfaceKHR
 
 # Homebrew's libMoltenVK bakes in an absolute install_name; rewrite our dependency on it to
 # @rpath so the dylib is relocatable — at runtime it's found next to us (rpath = @loader_path),
