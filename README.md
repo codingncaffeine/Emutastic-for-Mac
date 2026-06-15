@@ -53,7 +53,7 @@ Video snap previews use **libVLC**, bundled in the app (arriving in an upcoming 
 ## Supported Systems
 
 <details>
-<summary><strong>36 systems across 11 manufacturers</strong> (click to expand)</summary>
+<summary><strong>35 of 36 systems playable on Apple Silicon</strong> — PlayStation 2 excluded (click to expand)</summary>
 
 | System | Tag | Core (priority order) | BIOS |
 |---|---|---|---|
@@ -71,13 +71,13 @@ Video snap previews use **libVLC**, bundled in the app (arriving in an upcoming 
 | Genesis / Mega Drive | Genesis | genesis_plus_gx → picodrive | No |
 | Sega CD / Mega CD | SegaCD | genesis_plus_gx | Region BIOS |
 | Sega 32X | Sega32X | picodrive | No |
-| Sega Saturn | Saturn | mednafen_saturn → kronos → yabause | Region BIOS |
+| Sega Saturn ² | Saturn | mednafen_saturn → yabause | Region BIOS |
 | Master System | SMS | genesis_plus_gx → picodrive | No |
 | Game Gear | GameGear | genesis_plus_gx | No |
 | SG-1000 | SG1000 | genesis_plus_gx | No |
 | Dreamcast | Dreamcast | flycast | No |
 | PlayStation | PS1 | mednafen_psx_hw → mednafen_psx | Region BIOS |
-| PlayStation 2 ¹ | PS2 | pcsx2 | Required |
+| ~~PlayStation 2~~ ¹ | PS2 | *not supported on Apple Silicon* | — |
 | PSP | PSP | ppsspp | No |
 | TurboGrafx-16 | TG16 | mednafen_pce → mednafen_pce_fast | No |
 | TurboGrafx-CD | TGCD | mednafen_pce → mednafen_pce_fast | `syscard3.pce` |
@@ -97,11 +97,15 @@ Video snap previews use **libVLC**, bundled in the app (arriving in an upcoming 
 </details>
 
 Cores are downloaded from the **Apple Silicon** libretro build servers
-(`buildbot.libretro.com/nightly/apple/osx/arm64`) on demand — the same core lineup as upstream, as
-`.dylib` instead of `.dll`/`.so`.
+(`buildbot.libretro.com/nightly/apple/osx/arm64`) on demand — the same lineup as upstream, as `.dylib`.
+Every system above has an Apple Silicon core **except PlayStation 2**.
 
-¹ **PlayStation 2** — the `pcsx2` libretro core does not (yet) publish an Apple Silicon build, so PS2 is
-not currently playable on macOS arm64. Every other system above has an `apple/osx/arm64` core.
+¹ **PlayStation 2 is not supported on Apple Silicon.** The `pcsx2` (LRPS2) libretro core has no
+`apple/osx/arm64` build, and no other libretro core covers PS2; it may return if an upstream arm64 build
+appears.
+
+² **Sega Saturn** runs on **Beetle Saturn** (`mednafen_saturn`) or **Yabause** — the Kronos core has no
+Apple Silicon build, so it's dropped from the macOS lineup.
 
 ---
 
