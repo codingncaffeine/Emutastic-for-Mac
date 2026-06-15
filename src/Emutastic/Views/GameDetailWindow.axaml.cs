@@ -714,7 +714,6 @@ public partial class GameDetailWindow : Window
             case "NeoGeo":
                 return "RetroAchievements doesn't recognize this ROM set — RA usually targets one specific parent or clone; check retroachievements.org to confirm the title is on RA and which set is supported";
             case "PS1":
-            case "PS2":
             case "PSP":
             case "Saturn":
             case "Dreamcast":

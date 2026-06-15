@@ -61,7 +61,6 @@ namespace Emutastic.Services
             // accurate native rendering.
             { "PS1",         new[] { "mednafen_psx_hw_libretro.so",
                                      "mednafen_psx_libretro.so"        }},
-            { "PS2",         new[] { "pcsx2_libretro.so"               }},
             { "PSP",         new[] { "ppsspp_libretro.so"             }},
             { "TG16",        new[] { "mednafen_pce_libretro.so",
                                      "mednafen_pce_fast_libretro.so"        }},
@@ -211,29 +210,6 @@ namespace Emutastic.Services
                     if (coreName.Contains(coreMatch))
                         return files.Where(f => !FileFound(f)).ToList();
                 }
-            }
-
-            // PlayStation 2: LRPS2 reads any valid 4 MB dump from <dir>/pcsx2/bios/,
-            // so the gate is satisfied by the presence of any such file rather than
-            // a fixed filename. Checks the system dir and any extra (ROM) dirs.
-            if (console.Equals("PS2", StringComparison.OrdinalIgnoreCase))
-            {
-                bool anyPs2Bios = searchDirs.Any(dir =>
-                {
-                    string biosDir = Path.Combine(dir, "pcsx2", "bios");
-                    try
-                    {
-                        return Directory.Exists(biosDir) &&
-                               Directory.EnumerateFiles(biosDir, "*.bin").Any(f =>
-                               {
-                                   try { return new FileInfo(f).Length >= 4 * 1024 * 1024; }
-                                   catch { return false; }
-                               });
-                    }
-                    catch { return false; }
-                });
-                return anyPs2Bios ? new List<string>()
-                                  : new List<string> { "a PS2 BIOS dump in pcsx2/bios/" };
             }
 
             // Region-aware path: check only the files needed for this region.
