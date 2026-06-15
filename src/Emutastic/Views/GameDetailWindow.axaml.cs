@@ -55,6 +55,7 @@ public partial class GameDetailWindow : Window
         SetupAnimateIn();
         _ = LoadSnapAsync();
         _ = LoadRetroAchievementsAsync();
+        _ = LoadMetadataOnDemandAsync();   // fill missing metadata from the web (ScreenScraper) on the fly
     }
 
     protected override void OnClosed(EventArgs e)
@@ -81,12 +82,10 @@ public partial class GameDetailWindow : Window
         base.OnClosed(e);
     }
 
-    private void PopulateData()
+    // Shows the metadata pills (year / developer / genre) + description for the current
+    // _game. Safe to call again after an on-demand fetch fills previously-empty fields.
+    private void PopulateMetadata()
     {
-        Get<TextBlock>("GameTitle").Text = _game.Title;
-        Get<TextBlock>("ConsoleTag").Text = _game.Console;
-        Get<TextBlock>("ArtPlaceholderText").Text = _game.Title;
-
         bool hasYear  = _game.Year > 0;
         bool hasDev   = !string.IsNullOrEmpty(_game.Developer);
         bool hasGenre = !string.IsNullOrEmpty(_game.Genre);
@@ -125,6 +124,36 @@ public partial class GameDetailWindow : Window
             Get<ScrollViewer>("GameDescriptionScroll").IsVisible = true;
             Get<TextBlock>("GameDescription").Text = _game.Description;
         }
+    }
+
+    // On-the-fly metadata: if this game has no text metadata yet, fetch it from the web the
+    // moment the card opens — ScreenScraper (the user's account) is primary, with the dormant
+    // OpenVGDB tier as backup. Nothing is bundled or pre-stored; only the fetched result is
+    // persisted. Runs async off the constructor so the card shows instantly, then fills in.
+    private async System.Threading.Tasks.Task LoadMetadataOnDemandAsync()
+    {
+        if (_game.Year > 0 && !string.IsNullOrEmpty(_game.Developer)
+            && !string.IsNullOrEmpty(_game.Genre) && !string.IsNullOrEmpty(_game.Description))
+            return;   // already complete — don't spend a ScreenScraper request
+        if (string.IsNullOrEmpty(_game.RomHash) && string.IsNullOrEmpty(_game.RomPath)) return;
+
+        var fetch = (this.Owner as MainWindow)?.ArtworkFetch;
+        if (fetch == null) return;
+
+        try { await fetch.FetchSingleGameArtworkAsync(_game); }
+        catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[GameDetail] on-demand metadata fetch failed: {ex.Message}"); }
+
+        if (_closed) return;
+        PopulateMetadata();   // reveal pills/description now that _game may be filled
+    }
+
+    private void PopulateData()
+    {
+        Get<TextBlock>("GameTitle").Text = _game.Title;
+        Get<TextBlock>("ConsoleTag").Text = _game.Console;
+        Get<TextBlock>("ArtPlaceholderText").Text = _game.Title;
+
+        PopulateMetadata();
 
         UpdateStatPills();
         Get<Border>("FavoriteBadge").IsVisible = _game.IsFavorite;

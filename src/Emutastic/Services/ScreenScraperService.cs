@@ -102,7 +102,10 @@ namespace Emutastic.Services
             _snapCacheFolder = AppPaths.GetFolder("Snaps");
             _boxArt3DCacheFolder = AppPaths.GetFolder("BoxArt3D");
 
-            _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            // 30s, not 10s: ScreenScraper's jeuInfos can be slow under load / when the account has
+            // been hammered, and a 10s cap was timing out legitimate metadata/art/snap fetches. The
+            // fetch runs in the background (card shows immediately), so a longer ceiling costs nothing.
+            _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
             _http.DefaultRequestHeaders.Add("User-Agent", $"{SoftName}/1.0");
         }
 
