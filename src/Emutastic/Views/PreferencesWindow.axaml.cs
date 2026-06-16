@@ -178,9 +178,14 @@ public partial class PreferencesWindow : Window
     //  PreferencesCache isn't ported — a self-contained HttpClient GET + 3s budget)
     // ════════════════════════════════════════════════════════════════════════
 
-    private const string GitHubRepoUrl     = "https://github.com/codingncaffeine/Emutastic-For-Linux";
-    private const string GitHubLatestApi   = "https://api.github.com/repos/codingncaffeine/Emutastic-For-Linux/releases/latest";
-    private const string GitHubReleasesUrl = "https://github.com/codingncaffeine/Emutastic-For-Linux/releases";
+    // macOS is a separate fork — the About tab must point at the Mac repo there, not the Linux upstream
+    // (otherwise it shows the Linux repo's version, e.g. 0.8.5, and offers an update with no mac asset).
+    // API endpoint reuses UpdateService.LatestApi so there's one OS-aware source of truth.
+    private static readonly string GitHubRepoUrl = OperatingSystem.IsMacOS()
+        ? "https://github.com/codingncaffeine/Emutastic-for-Mac"
+        : "https://github.com/codingncaffeine/Emutastic-For-Linux";
+    private static readonly string GitHubLatestApi = Services.UpdateService.LatestApi;
+    private static readonly string GitHubReleasesUrl = GitHubRepoUrl + "/releases";
 
     private static readonly System.Net.Http.HttpClient _aboutHttp = CreateAboutHttp();
     private string? _latestReleaseUrl;
@@ -283,7 +288,9 @@ public partial class PreferencesWindow : Window
                     var kind = Services.UpdateService.DetectInstallKind();
                     var asset = Services.UpdateService.PickAsset(kind, _latestAssets);
                     bool canSelfUpdate = asset != null
-                        && kind is Services.UpdateService.InstallKind.Deb or Services.UpdateService.InstallKind.SelfContained;
+                        && kind is Services.UpdateService.InstallKind.Deb
+                                or Services.UpdateService.InstallKind.SelfContained
+                                or Services.UpdateService.InstallKind.MacApp;
                     status.Text = kind switch
                     {
                         Services.UpdateService.InstallKind.Dev => "A newer release is available. (Development build — update via git.)",

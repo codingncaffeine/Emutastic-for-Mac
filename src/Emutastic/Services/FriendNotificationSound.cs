@@ -28,12 +28,20 @@ namespace Emutastic.Services
 
         private static string? FindPlayer(out string argsTemplate)
         {
-            foreach (var (exe, args) in new[]
-            {
-                ("ffplay", "-nodisp -autoexit -loglevel quiet \"{0}\""),
-                ("pw-play", "\"{0}\""),
-                ("paplay", "\"{0}\""),
-            })
+            // macOS ships `afplay` (always present); Linux falls back through ffplay → PipeWire → Pulse.
+            var candidates = OperatingSystem.IsMacOS()
+                ? new[]
+                {
+                    ("afplay", "\"{0}\""),
+                    ("ffplay", "-nodisp -autoexit -loglevel quiet \"{0}\""),
+                }
+                : new[]
+                {
+                    ("ffplay", "-nodisp -autoexit -loglevel quiet \"{0}\""),
+                    ("pw-play", "\"{0}\""),
+                    ("paplay", "\"{0}\""),
+                };
+            foreach (var (exe, args) in candidates)
             {
                 foreach (string dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(':'))
                     if (!string.IsNullOrEmpty(dir) && File.Exists(Path.Combine(dir, exe)))
