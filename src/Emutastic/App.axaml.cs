@@ -115,6 +115,10 @@ public partial class App : Application
                 System.Diagnostics.Trace.Listeners.Add(
                     new System.Diagnostics.ConsoleTraceListener(useErrorStream: true));
             }
+            // ALSO mirror the library process's Trace to a file. A Finder-launched .app has no terminal,
+            // so the stderr listener above goes nowhere — failures like a botched auto-update left no log
+            // to inspect. The game-host already writes emulator-host.log; this is the library's counterpart.
+            Services.EmuLog.Setup("emulator.log");
 
             // ── Global crash diagnostics (ports upstream's App.OnStartup handlers) → Logs/crash.log ──
             // Background-thread exceptions (e.g. a Task.Run without await).

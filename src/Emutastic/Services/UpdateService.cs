@@ -32,13 +32,18 @@ namespace Emutastic.Services
     /// </summary>
     public static class UpdateService
     {
-        public const string DefaultLatestApi =
+        // Each platform self-updates from its OWN repo's latest release — the macOS build is a separate
+        // fork, so the old hardcoded Linux endpoint found Linux-only assets and could never update a .app.
+        public const string DefaultLatestApiLinux =
             "https://api.github.com/repos/codingncaffeine/Emutastic-For-Linux/releases/latest";
+        public const string DefaultLatestApiMac =
+            "https://api.github.com/repos/codingncaffeine/Emutastic-for-Mac/releases/latest";
 
         public static string LatestApi =>
-            Environment.GetEnvironmentVariable("EMUTASTIC_UPDATE_API") ?? DefaultLatestApi;
+            Environment.GetEnvironmentVariable("EMUTASTIC_UPDATE_API")
+            ?? (OperatingSystem.IsMacOS() ? DefaultLatestApiMac : DefaultLatestApiLinux);
 
-        public enum InstallKind { Dev, Deb, SelfContained, ReadOnly }
+        public enum InstallKind { Dev, Deb, SelfContained, MacApp, ReadOnly }
 
         public static InstallKind DetectInstallKind()
         {
@@ -47,6 +52,14 @@ namespace Emutastic.Services
             if (norm.Contains("/bin/Release/") || norm.Contains("/bin/Debug/")
                 || norm.EndsWith("/bin/Release") || norm.EndsWith("/bin/Debug"))
                 return InstallKind.Dev;
+            if (OperatingSystem.IsMacOS())
+            {
+                // A .app install we can swap wholesale, IF the bundle's parent dir is writable
+                // (e.g. ~/Desktop, ~/Applications, or /Applications when the user owns it).
+                string? bundle = MacAppBundlePath(dir);
+                if (bundle == null) return InstallKind.ReadOnly;   // unbundled mac binary — don't self-update
+                return IsWritable(Directory.GetParent(bundle)!.FullName) ? InstallKind.MacApp : InstallKind.ReadOnly;
+            }
             if (norm.StartsWith("/usr/")) return InstallKind.Deb;
             try
             {
@@ -56,6 +69,24 @@ namespace Emutastic.Services
                 return InstallKind.SelfContained;
             }
             catch { return InstallKind.ReadOnly; }
+        }
+
+        /// <summary>Emutastic.app bundle path from the exe folder (.app/Contents/MacOS → .app), or null.</summary>
+        private static string? MacAppBundlePath(string exeFolder)
+        {
+            var macos = new DirectoryInfo(exeFolder);
+            if (!macos.Name.Equals("MacOS", StringComparison.OrdinalIgnoreCase)) return null;
+            var contents = macos.Parent;
+            if (contents == null || !contents.Name.Equals("Contents", StringComparison.OrdinalIgnoreCase)) return null;
+            var app = contents.Parent;
+            if (app == null || !app.Name.EndsWith(".app", StringComparison.OrdinalIgnoreCase)) return null;
+            return app.FullName;
+        }
+
+        private static bool IsWritable(string dir)
+        {
+            try { string p = Path.Combine(dir, ".emutastic-write-probe"); File.WriteAllText(p, ""); File.Delete(p); return true; }
+            catch { return false; }
         }
 
         public sealed record ReleaseAsset(string Name, string Url, long Size, string? Digest = null);
@@ -76,7 +107,7 @@ namespace Emutastic.Services
                 if (prefs?.CheckForUpdates == false) return null;
 
                 var kind = DetectInstallKind();
-                if (kind is not (InstallKind.Deb or InstallKind.SelfContained)) return null;
+                if (kind is not (InstallKind.Deb or InstallKind.SelfContained or InstallKind.MacApp)) return null;
 
                 using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
                 http.DefaultRequestHeaders.UserAgent.ParseAdd("Emutastic/updater");
@@ -120,8 +151,11 @@ namespace Emutastic.Services
                 // portable.txt (or its absence) is the user's choice and survives.
                 bool tar = a.Name.StartsWith("Emutastic-", StringComparison.OrdinalIgnoreCase)
                            && a.Name.EndsWith("-linux-x64.tar.gz", StringComparison.OrdinalIgnoreCase);
+                bool macZip = a.Name.StartsWith("Emutastic-", StringComparison.OrdinalIgnoreCase)
+                           && a.Name.EndsWith("-osx-arm64.zip", StringComparison.OrdinalIgnoreCase);
                 if (kind == InstallKind.Deb && deb) return a;
                 if (kind == InstallKind.SelfContained && tar) return a;
+                if (kind == InstallKind.MacApp && macZip) return a;
             }
             return null;
         }
@@ -187,6 +221,7 @@ namespace Emutastic.Services
                 {
                     InstallKind.SelfContained => await ApplyTarballAsync(file, progress, ct),
                     InstallKind.Deb           => await ApplyDebAsync(file, progress, ct),
+                    InstallKind.MacApp        => await ApplyMacAppAsync(file, progress, ct),
                     _ => "This installation can't self-update.",
                 };
             }
@@ -237,6 +272,65 @@ namespace Emutastic.Services
             Process.Start(new ProcessStartInfo("setsid", $"bash \"{script}\"")
             { UseShellExecute = false });
 
+            progress.Report((100, "Restarting…"));
+            await Task.Delay(400, ct);
+            Environment.Exit(0);
+            return null; // unreachable
+        }
+
+        // macOS: extract the new Emutastic.app, then a DETACHED shell script waits for this process to
+        // exit, swaps the bundle (keeping a backup it restores on failure, so a botched swap never leaves
+        // a broken install), clears quarantine, and relaunches via `open`. Uses only stock-macOS tools
+        // (ditto, mv, xattr, open, kill -0) — NOT `setsid`/`tail --pid`, which don't exist on macOS and
+        // are exactly why the inherited Linux path could never apply an update here.
+        private static async Task<string?> ApplyMacAppAsync(string zip, IProgress<(int, string)> progress, CancellationToken ct)
+        {
+            string? appBundle = MacAppBundlePath(AppPaths.GetExeFolder());
+            if (appBundle == null) return "Couldn't locate the .app bundle to update.";
+
+            string staging = Path.Combine(Path.GetTempPath(), $"emutastic-update-staging-{Environment.ProcessId}");
+            progress.Report((100, "Extracting…"));
+            if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true);
+            Directory.CreateDirectory(staging);
+
+            // `ditto -x -k` unpacks a macOS zip preserving the bundle's code signature + metadata.
+            var ditto = new ProcessStartInfo("ditto") { UseShellExecute = false, RedirectStandardError = true };
+            ditto.ArgumentList.Add("-x"); ditto.ArgumentList.Add("-k");
+            ditto.ArgumentList.Add(zip); ditto.ArgumentList.Add(staging);
+            var dp = Process.Start(ditto)!;
+            string dErr = await dp.StandardError.ReadToEndAsync(ct);
+            await dp.WaitForExitAsync(ct);
+            if (dp.ExitCode != 0) { Trace.WriteLine($"[Update] ditto failed: {dErr}"); return "Archive extraction failed."; }
+
+            string newApp = Path.Combine(staging, "Emutastic.app");
+            if (!Directory.Exists(Path.Combine(newApp, "Contents", "MacOS")))
+                return "The downloaded archive doesn't look like an Emutastic.app release.";
+
+            string script = Path.Combine(Path.GetTempPath(), $"emutastic-apply-{Environment.ProcessId}.sh");
+            string bak = $"{appBundle}.bak-{Environment.ProcessId}";
+            await File.WriteAllTextAsync(script, $"""
+                #!/bin/sh
+                # Emutastic macOS self-update: wait for the running app to exit, then swap the bundle.
+                while kill -0 {Environment.ProcessId} 2>/dev/null; do sleep 0.2; done
+                /bin/rm -rf "{bak}"
+                /bin/mv "{appBundle}" "{bak}" || exit 1
+                if /bin/mv "{newApp}" "{appBundle}"; then
+                    /usr/bin/xattr -dr com.apple.quarantine "{appBundle}" 2>/dev/null
+                    /bin/rm -rf "{bak}" "{staging}"
+                    /bin/rm -f "{zip}"
+                else
+                    /bin/mv "{bak}" "{appBundle}"   # swap failed — restore the original, never leave it broken
+                fi
+                /usr/bin/open "{appBundle}"
+                """, ct);
+
+            // Detach so the script outlives this process (macOS has no setsid; nohup + & does it).
+            var sh = new ProcessStartInfo("/bin/sh") { UseShellExecute = false };
+            sh.ArgumentList.Add("-c");
+            sh.ArgumentList.Add($"nohup /bin/sh \"{script}\" >/dev/null 2>&1 &");
+            Process.Start(sh);
+
+            Trace.WriteLine($"[Update] macOS apply: swapping {appBundle} and relaunching");
             progress.Report((100, "Restarting…"));
             await Task.Delay(400, ct);
             Environment.Exit(0);
