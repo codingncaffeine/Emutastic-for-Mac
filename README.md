@@ -40,13 +40,43 @@ install any of it by hand:
 | In-app download | Where | What it's for |
 |---|---|---|
 | **libretro cores** (`.dylib`) | Preferences → Cores | the per-system emulator cores |
-| **ffmpeg** (Apple-Silicon static build) | Preferences → Extras | gameplay recording — same model as the in-app `ffmpeg.exe` download on Windows |
 | **DAT files** | Preferences → Cores / Extras | ROM identification |
+
+Gameplay recording needs **no download** on macOS — it encodes natively through Apple's VideoToolbox
+(hardware H.264/HEVC/ProRes), unlike the ffmpeg download Windows uses.
 
 Video snap previews use **libVLC**, bundled in the app (arriving in an upcoming build).
 
 > The Homebrew packages listed under [Building](#building) (`dotnet`, `sdl3`, `ffmpeg`, …) are **only
 > needed to build from source** — end users running the `.app` never touch Homebrew.
+
+---
+
+## Installing & first launch
+
+Download `Emutastic-<version>-osx-arm64.zip` from the
+[Releases](https://github.com/codingncaffeine/Emutastic-for-Mac/releases) page, unzip it, and drag
+**Emutastic.app** into your Applications folder.
+
+Emutastic is **self-signed**, not notarized through Apple's paid Developer Program — it's a free,
+non-profit app, so paying Apple's yearly fee isn't worth it. Because of that, macOS shows **two
+one-time prompts**. Both are expected and safe to approve:
+
+**1 — "Apple cannot check it for malicious software" (first launch).**
+Gatekeeper blocks the first *double-click* of any app that isn't notarized. To get past it, just open
+it a different way once:
+
+- **Right-click** (or Control-click) **Emutastic.app → Open**, then click **Open** in the dialog.
+- *(Terminal alternative: `xattr -dr com.apple.quarantine /Applications/Emutastic.app`)*
+
+After that first time, it opens normally on every launch.
+
+**2 — "Emutastic would like to access files in your Desktop folder" (first time you launch a game).**
+macOS asks **every** app once before it may read your Desktop / Documents / Downloads — click
+**Allow** (or **OK**). Because Emutastic is signed with a stable certificate, your choice is
+**remembered**: you're only asked once, and your **ROMs can live in any folder** with no need to
+change file or folder permissions. *(If you ever update and get asked again, allow it once more — that
+just means the signing certificate changed.)*
 
 ---
 
