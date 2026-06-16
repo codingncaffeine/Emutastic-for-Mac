@@ -114,6 +114,12 @@ namespace Emutastic.Services
                 {
                     try { await syncSvc.PullSaveBeforeLaunchAsync(game).ConfigureAwait(false); }
                     catch (Exception ex) { CloudSyncLog.Write($"pre-launch pull failed: {ex.Message}"); }
+                    // Also make this console's memory cards / save trees current before the core boots
+                    // (PSP/GameCube/Dreamcast/3DS — no .srm of their own). Usually a fast no-op: the
+                    // startup/login background sync already pulled them; this waits for any in-flight
+                    // sync, bounded so launch can't hang.
+                    try { await syncSvc.EnsureConsoleSavesReadyAsync(console).ConfigureAwait(false); }
+                    catch (Exception ex) { CloudSyncLog.Write($"pre-launch memcard sync failed: {ex.Message}"); }
                     Dispatcher.UIThread.Post(() => SpawnHost(corePath, romPath, console, game, loadStatePath, onExit));
                 });
                 return;

@@ -556,7 +556,12 @@ namespace Emutastic.Emulator
                 string coreDir = System.IO.Path.GetDirectoryName(_corePath) ?? "";
                 string sysDir = _handler.ResolveSystemDirectory(AppPaths.GetFolder("System"), coreDir);
                 _handler.PrepareSystemDirectory(sysDir);   // stage console-specific BIOS layout (e.g. CD-i → same_cdi/bios)
-                string saveDir = AppPaths.GetFolder("Saves");
+                // Saves are organized per-console (Saves/<Console>/) — the analog of upstream's
+                // BatterySaves/<Console>/ tree. This keeps each core's memory cards and save trees
+                // (User/ for Dolphin, Azahar/, dc/, PSP/, …) under their own console folder, so cloud
+                // sync can attribute them by console (GitHubSyncService.BuildExtraSaveMap).
+                // SaveLayoutMigrator moves any pre-existing flat saves into place at startup.
+                string saveDir = AppPaths.GetFolder("Saves", _console);
                 _handler.PrepareSaveDirectory(saveDir);   // create any console-specific subdirs (e.g. dc/)
                 // Battery save lives next to the ROM's name in the Saves dir (RetroArch's <rom>.srm scheme).
                 // ROM-hack entries share the base ROM file (and thus its stem); disambiguate their

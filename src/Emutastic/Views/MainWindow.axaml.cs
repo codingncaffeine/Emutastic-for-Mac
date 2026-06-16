@@ -744,6 +744,11 @@ public partial class MainWindow : Window
             // Cloud sync: upload the battery save the session just wrote (fire-and-
             // forget, like upstream's game-close hook; no-op when manual timing).
             _ = Services.GitHubSyncService.Instance.UploadSaveAfterSessionAsync(g);
+            // …and this console's memory cards / save trees (GameCube/Dreamcast/PSP/3DS, …).
+            // Separate call: those consoles have no .srm, so the upload above is a no-op for
+            // them. Fire-and-forget — never blocks the close path.
+            if (!string.IsNullOrEmpty(g.Console))
+                _ = Services.GitHubSyncService.Instance.UploadConsoleExtraSavesAsync(g.Console);
         };
         // RetroAchievements session results: the host writes neither DB nor config, so the
         // Play stats (upstream's UpdatePlayCount at launch + play-time accrual): recorded at
@@ -890,6 +895,12 @@ public partial class MainWindow : Window
         };
         _artworkFetch = new ArtworkFetchService(_db, new ArtworkService(), _vm);
         WireImportEvents();
+        // Cloud sync: show a transient banner while a background full-sync runs (startup and after
+        // sign-in). The sync itself is kicked off by App (after startup grace + token validation) and
+        // by PreferencesWindow on login; here we only mirror its state into the status line.
+        Services.GitHubSyncService.Instance.SyncStateChanged += syncing =>
+            Dispatcher.UIThread.Post(() =>
+                _vm?.SetStatus(syncing ? "Syncing saves…" : "Saves synced", autoClear: !syncing));
         DataContext = _vm;
         Services.StartupTrace.Stop("MainWindow.CreateServices", swSvc);
 
