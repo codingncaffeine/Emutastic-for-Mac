@@ -1041,6 +1041,10 @@ public partial class PreferencesWindow : Window
     private bool _loadingMedia;
     private static readonly string[] RecQualities = { "Low", "Medium", "High", "Lossless" };
     private static readonly string[] RecEncoders  = { "Auto", "x264", "VAAPI", "NVENC" };
+    // macOS encodes natively via VideoToolbox (no ffmpeg): Auto = H.264, plus HEVC (smaller) and ProRes
+    // (editing/near-lossless). Quality drives the H.264/HEVC bitrate; "Lossless" promotes to ProRes 4444.
+    private static readonly string[] RecEncodersMac = { "Auto", "HEVC", "ProRes" };
+    private static string[] RecEncodersForOS => OperatingSystem.IsMacOS() ? RecEncodersMac : RecEncoders;
     private static readonly int[] RecAudioRates   = { 128, 192, 256, 320 };
 
     private void WireMedia()
@@ -1077,7 +1081,7 @@ public partial class PreferencesWindow : Window
         var rec = App.Configuration?.GetRecordingConfiguration() ?? new Configuration.RecordingConfiguration();
         PopulateCombo("RecQualityCombo", RecQualities, rec.Quality, "High");
         PopulateCombo("RecScaleCombo", new[] { "1x", "2x", "3x", "4x" }, $"{Math.Clamp(rec.OutputScale, 1, 4)}x", "2x");
-        PopulateCombo("RecEncoderCombo", RecEncoders, RecEncoders.Contains(rec.Encoder) ? rec.Encoder : "Auto", "Auto");
+        PopulateCombo("RecEncoderCombo", RecEncodersForOS, RecEncodersForOS.Contains(rec.Encoder) ? rec.Encoder : "Auto", "Auto");
         PopulateCombo("RecAudioBitrateCombo", new[] { "128 kbps", "192 kbps", "256 kbps", "320 kbps" }, $"{rec.AudioBitrateKbps} kbps", "192 kbps");
         this.FindControl<CheckBox>("RecHighChromaCheck")!.IsChecked = rec.HighChroma;
         _loadingMedia = false;

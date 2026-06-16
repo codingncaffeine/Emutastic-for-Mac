@@ -67,6 +67,11 @@ namespace Emutastic.Services
         private string _outputPath = "";
         private string _videoRawPath = "", _audioRawPath = "";
         private FileStream? _videoTemp, _audioTemp;
+        // macOS: encode live through the native AVFoundation/VideoToolbox shim (libavrec) instead of
+        // writing raw frames to disk + an ffmpeg pass. _avrec is the native handle; the writer threads
+        // push straight to it. (Linux/Windows keep the raw-file + ffmpeg path.)
+        private bool _useNative;
+        private IntPtr _avrec;
         private BlockingCollection<(byte[] buf, int len)>? _videoQueue;
         private BlockingCollection<(byte[] buf, int len, bool rented)>? _audioQueue;
         private Thread? _videoWriter, _audioWriter;
@@ -119,32 +124,52 @@ namespace Emutastic.Services
                              Action<string?> onEncodeComplete, RecordingEncodeSettings settings)
         {
             if (IsRecording) return "Already recording";
-            if (FindFfmpeg() == null) return "ffmpeg not found — install it (e.g. apt install ffmpeg)";
+            _useNative = OperatingSystem.IsMacOS();   // native VideoToolbox encode; no ffmpeg needed
+            if (!_useNative && FindFfmpeg() == null) return "ffmpeg not found — install it (e.g. apt install ffmpeg)";
             if (width <= 0 || height <= 0) return "No frame yet — try again once the game is rendering";
+
+            _width = width; _height = height; _fps = fps; _sampleRate = sampleRate;
+            _settings = settings; _onComplete = onEncodeComplete;
+            _frameBytes = width * height * 4;   // session frames are always tightly-packed BGRA
 
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-                _outputPath = outputPath;
-                _videoRawPath = outputPath + ".video.raw";
-                _audioRawPath = outputPath + ".audio.raw";
-                _videoTemp = new FileStream(_videoRawPath, FileMode.Create, FileAccess.Write, FileShare.None, 4 << 20);
-                _audioTemp = new FileStream(_audioRawPath, FileMode.Create, FileAccess.Write, FileShare.None, 64 << 10);
+                if (_useNative)
+                {
+                    // Live hardware encode through libavrec (AVFoundation/VideoToolbox). ProRes lands in a
+                    // .mov container; H.264/HEVC in .mp4.
+                    var (codec, dstW, dstH, vKbps) = MacEncodeParams(settings, width, height, fps);
+                    _outputPath = codec >= (int)Platform.AvRecNative.Codec.ProRes422
+                                  ? Path.ChangeExtension(outputPath, ".mov") : outputPath;
+                    _avrec = Platform.AvRecNative.avrec_start(_outputPath, width, height, dstW, dstH, fps,
+                                 sampleRate, 2, codec, vKbps, Math.Clamp(settings.AudioBitrateKbps, 64, 320));
+                    if (_avrec == IntPtr.Zero) return "Recording failed to start (VideoToolbox encoder)";
+                    RecLog($"started (native) {width}x{height}->{dstW}x{dstH}@{fps:F2} codec={codec} vKbps={vKbps} → {_outputPath}");
+                }
+                else
+                {
+                    _outputPath = outputPath;
+                    _videoRawPath = outputPath + ".video.raw";
+                    _audioRawPath = outputPath + ".audio.raw";
+                    _videoTemp = new FileStream(_videoRawPath, FileMode.Create, FileAccess.Write, FileShare.None, 4 << 20);
+                    _audioTemp = new FileStream(_audioRawPath, FileMode.Create, FileAccess.Write, FileShare.None, 64 << 10);
+                }
             }
-            catch (Exception ex) { Cleanup(); return $"Could not create recording files: {ex.Message}"; }
+            catch (Exception ex) { Cleanup(); return $"Could not start recording: {ex.Message}"; }
 
-            _width = width; _height = height; _fps = fps; _sampleRate = sampleRate;
-            _settings = settings; _onComplete = onEncodeComplete;
-
-            // Sidecar so RecoverInterrupted can finish this encode if we die mid-way. Best-effort.
-            try
+            // Sidecar (crash-recovery for the raw-file path) only — the native path encodes live, so a
+            // crash leaves an unfinalized file rather than recoverable raw frames.
+            if (!_useNative)
             {
-                var sc = new RecordingSidecar { Width = width, Height = height, Fps = fps, SampleRate = sampleRate, Settings = settings };
-                File.WriteAllText(outputPath + ".meta.json", JsonSerializer.Serialize(sc));
+                try
+                {
+                    var sc = new RecordingSidecar { Width = width, Height = height, Fps = fps, SampleRate = sampleRate, Settings = settings };
+                    File.WriteAllText(outputPath + ".meta.json", JsonSerializer.Serialize(sc));
+                }
+                catch (Exception ex) { RecLog($"sidecar write failed: {ex.Message}"); }
             }
-            catch (Exception ex) { RecLog($"sidecar write failed: {ex.Message}"); }
 
-            _frameBytes = width * height * 4;   // session frames are always tightly-packed BGRA
             _framePool = new ConcurrentBag<byte[]>();
             for (int i = 0; i < FramePoolSize; i++) _framePool.Add(new byte[_frameBytes]);
             _videoQueue = new BlockingCollection<(byte[], int)>(FramePoolSize);
@@ -190,7 +215,8 @@ namespace Emutastic.Services
             {
                 foreach (var (buf, len) in _videoQueue!.GetConsumingEnumerable())
                 {
-                    _videoTemp!.Write(buf, 0, len);
+                    if (_useNative) Platform.AvRecNative.avrec_video(_avrec, buf, len);
+                    else _videoTemp!.Write(buf, 0, len);
                     Interlocked.Increment(ref _framesWritten);
                     _framePool!.Add(buf);
                 }
@@ -204,7 +230,8 @@ namespace Emutastic.Services
             {
                 foreach (var (buf, len, rented) in _audioQueue!.GetConsumingEnumerable())
                 {
-                    _audioTemp!.Write(buf, 0, len);
+                    if (_useNative) Platform.AvRecNative.avrec_audio(_avrec, buf, len);
+                    else _audioTemp!.Write(buf, 0, len);
                     if (rented) ArrayPool<byte>.Shared.Return(buf);
                 }
             }
@@ -221,11 +248,63 @@ namespace Emutastic.Services
             _audioQueue?.CompleteAdding();
             _videoWriter?.Join(5000);
             _audioWriter?.Join(5000);
+            RecLog($"stopped after {_elapsed.Elapsed:mm\\:ss} frames={_framesWritten} dropped={_framesDropped}");
+
+            if (_useNative)
+            {
+                // Writers are joined → no more avrec_video/avrec_audio. Finalize off-thread (the native
+                // finishWriting flush can take a beat) so Stop() doesn't block the caller's frame.
+                IntPtr handle = _avrec; _avrec = IntPtr.Zero;
+                EncodeTask = Task.Run(() =>
+                {
+                    int rc = handle != IntPtr.Zero ? Platform.AvRecNative.avrec_stop(handle) : -1;
+                    RecLog($"avrec_stop rc={rc} → {_outputPath}");
+                    Cleanup();
+                    _onComplete?.Invoke(rc == 0 ? null : "Recording encode failed (see emulator-host.log)");
+                });
+                return;
+            }
+
             try { _videoTemp?.Flush(); _videoTemp?.Dispose(); } catch { }
             try { _audioTemp?.Flush(); _audioTemp?.Dispose(); } catch { }
             _videoTemp = null; _audioTemp = null;
-            RecLog($"stopped after {_elapsed.Elapsed:mm\\:ss} frames={_framesWritten} dropped={_framesDropped}");
             EncodeTask = Task.Run(EncodeAndMux);
+        }
+
+        // Map the cross-platform RecordingEncodeSettings onto the native VideoToolbox encoder: a codec
+        // (0=H.264, 1=HEVC, 2=ProRes 422, 3=ProRes 4444), the target size (nearest-neighbor upscale +
+        // CD-i aspect correction, mirroring the ffmpeg path), and an H.264/HEVC bitrate. The Encoder
+        // combo on macOS offers "Auto"/"HEVC"/"ProRes"; Quality drives the bitrate tier, and Lossless or
+        // High-chroma promote to ProRes (the macOS-native way to get 4:4:4 / visually-lossless output).
+        private static (int codec, int dstW, int dstH, int videoKbps) MacEncodeParams(
+            RecordingEncodeSettings s, int width, int height, double fps)
+        {
+            int scale = Math.Clamp(s.OutputScale, 1, 4);
+            int dstH = height * scale, dstW = width * scale;
+            if (s.DisplayAspectRatio > 0)
+            {
+                float bufAspect = width / (float)height;
+                float ratio = s.DisplayAspectRatio / bufAspect;
+                if (ratio > 1.4f || ratio < 1f / 1.4f)
+                    dstW = (int)Math.Round(dstH * s.DisplayAspectRatio);
+            }
+            dstW &= ~1; dstH &= ~1;
+
+            bool lossless = s.Quality.Equals("Lossless", StringComparison.OrdinalIgnoreCase);
+            string enc = (s.Encoder ?? "").ToLowerInvariant();
+            int codec;
+            if (enc.Contains("prores") || lossless)
+                codec = (lossless || s.HighChroma) ? 3 : 2;   // ProRes 4444 (4:4:4) for lossless/high-chroma, else 422
+            else if (enc.Contains("hevc"))
+                codec = 1;                                     // HEVC
+            else
+                codec = s.HighChroma ? 2 : 0;                  // Auto/H.264; high-chroma → ProRes 422 for true 4:2:2
+
+            double bpp = s.Quality.ToLowerInvariant() switch { "low" => 0.05, "medium" => 0.10, _ => 0.20 };
+            if (codec == 1) bpp *= 0.6;   // HEVC reaches the same quality at a lower bitrate
+            int videoKbps = (int)(dstW * (double)dstH * fps * bpp / 1000.0);
+            videoKbps = Math.Clamp(videoKbps, 1500, 120000);
+            return (codec, dstW, dstH, videoKbps);
         }
 
         private void EncodeAndMux()
@@ -246,6 +325,9 @@ namespace Emutastic.Services
         private static int _sweeping;
         public static void RecoverInterrupted()
         {
+            // The native macOS path encodes live (no raw frames + ffmpeg pass), so there's nothing to
+            // recover — a crash leaves an unfinalized file, not recoverable raw frames.
+            if (OperatingSystem.IsMacOS()) return;
             if (Interlocked.Exchange(ref _sweeping, 1) != 0) return;   // one sweep at a time
             try
             {

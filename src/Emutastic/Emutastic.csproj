@@ -88,6 +88,20 @@
           DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 
+  <!-- libavrec (macOS only): AVFoundation/VideoToolbox recording encoder (BGRA + S16LE → MP4/MOV,
+       hardware-accelerated). System frameworks only — nothing bundled. Built from native/avrec/. -->
+  <Target Name="BuildAvRec" BeforeTargets="Build"
+          Condition="$([MSBuild]::IsOSPlatform('OSX'))"
+          Inputs="$(MSBuildProjectDirectory)/../../native/avrec/avrec.m;$(MSBuildProjectDirectory)/../../native/avrec/build.sh"
+          Outputs="$(MSBuildProjectDirectory)/../../native/avrec/libavrec.dylib">
+    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/../../native/avrec/build.sh&quot;" />
+  </Target>
+  <Target Name="CopyAvRec" AfterTargets="BuildAvRec;Build"
+          Condition="$([MSBuild]::IsOSPlatform('OSX')) And Exists('$(MSBuildProjectDirectory)/../../native/avrec/libavrec.dylib')">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/../../native/avrec/libavrec.dylib"
+          DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
   <!-- libretrolog (macOS only): formats the libretro variadic log callback in native C so core
        logs keep their arguments on arm64. Built from native/retrolog/. -->
   <Target Name="BuildRetroLog" BeforeTargets="Build"
