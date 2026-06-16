@@ -32,6 +32,7 @@ namespace Emutastic.Services
 
         [DllImport("SDL3")] [return: MarshalAs(UnmanagedType.I1)] static extern bool SDL_InitSubSystem(uint flags);
         [DllImport("SDL3")] static extern void SDL_QuitSubSystem(uint flags);
+        [DllImport("SDL3")] [return: MarshalAs(UnmanagedType.I1)] static extern bool SDL_SetHint([MarshalAs(UnmanagedType.LPUTF8Str)] string name, [MarshalAs(UnmanagedType.LPUTF8Str)] string value);
         [DllImport("SDL3")] static extern void SDL_PumpEvents();
         [DllImport("SDL3")] static extern void SDL_UpdateGamepads();
         [DllImport("SDL3")] static extern IntPtr SDL_GetGamepads(out int count);
@@ -63,9 +64,21 @@ namespace Emutastic.Services
         private readonly DispatcherTimer _timer;
         private bool _initialized;
         private bool _disposed;
+        private bool _suspended;
 
         public ControllerManager()
         {
+            // macOS BEACHBALL FIX: SDL's HIDAPI joystick driver enumerates HID devices inside
+            // SDL_PumpEvents, and IOKit's plug-in creation for the GameController framework's *synthetic*
+            // controller can BLOCK for seconds (captured via `sample`: a permanent UI hang in
+            // IOCreatePlugInInterfaceForService → AppleSyntheticGameController, plus the recurring ~540ms
+            // startup freezes in ui_freezes.log). We pump on the Avalonia UI thread, so that block freezes
+            // the whole app. The parent only needs controllers while FOREGROUND (Controls-panel bind
+            // capture + library hotplug toasts), so disable HIDAPI and let SDL use the Apple
+            // GameController/IOKit driver, which is notification-driven and never does that blocking
+            // enumeration. (The game-host CHILD keeps HIDAPI — it needs raw, non-foreground input for
+            // hot-plug; see SdlInput.) No effect off macOS (evdev/XInput enumeration doesn't block).
+            if (OperatingSystem.IsMacOS()) SDL_SetHint("SDL_JOYSTICK_HIDAPI", "0");
             _initialized = SDL_InitSubSystem(SDL_INIT_GAMEPAD);   // refcounted — safe alongside a session's SdlInput
             CtrlLog(_initialized ? "SDL gamepad subsystem initialized"
                                  : "SDL gamepad subsystem init FAILED");
@@ -87,7 +100,7 @@ namespace Emutastic.Services
         /// <summary>Select which connected gamepad capture/state reads from.</summary>
         public void SetActiveDevice(int index) { _activeDevice = index; _prev.Clear(); }
 
-        private void Refresh()
+        private void Refresh(bool announce = true)
         {
             IntPtr arr = SDL_GetGamepads(out int count);
             var present = new HashSet<uint>();
@@ -107,7 +120,7 @@ namespace Emutastic.Services
             {
                 _prev.Clear();
                 CtrlLog($"Device set changed: count={_pads.Count} names=[{string.Join(", ", GetDeviceNames())}]");
-                ConnectionChanged?.Invoke(IsConnected);
+                if (announce) ConnectionChanged?.Invoke(IsConnected);
             }
         }
 
@@ -145,6 +158,38 @@ namespace Emutastic.Services
             if (pressed == was) return;
             _prev[rawId] = pressed;
             ButtonChanged?.Invoke(rawId, pressed);
+        }
+
+        /// <summary>
+        /// macOS cross-process handoff: while a child <c>--game-host</c> owns the controller, the parent
+        /// must fully RELEASE it — close the pads and quit the gamepad subsystem (refcount→0), not merely
+        /// skip pumping (the device stays grabbed otherwise, starving the child → controls dead at game
+        /// start). <see cref="Resume"/> re-acquires it when the game exits. No-op on Linux (evdev serves
+        /// concurrent readers). Only the long-lived <c>MainWindow._hotplugMgr</c> is suspended — the
+        /// Controls panel's short-lived manager re-inits the subsystem on demand for bind capture.
+        /// </summary>
+        public void Suspend()
+        {
+            if (_disposed || _suspended) return;
+            _suspended = true;
+            _timer.Stop();
+            foreach (var p in _pads) SDL_CloseGamepad(p.handle);
+            _pads.Clear();
+            _prev.Clear();
+            if (_initialized) { SDL_QuitSubSystem(SDL_INIT_GAMEPAD); _initialized = false; }
+            CtrlLog("suspended (child game owns the controller)");
+        }
+
+        /// <summary>Re-acquire the controller after the last child game exits (counterpart to
+        /// <see cref="Suspend"/>). Silent Refresh so re-priming doesn't pop a "Controller connected" toast.</summary>
+        public void Resume()
+        {
+            if (_disposed || !_suspended) return;
+            _suspended = false;
+            _initialized = SDL_InitSubSystem(SDL_INIT_GAMEPAD);
+            CtrlLog(_initialized ? "resumed (child game ended)" : "resume FAILED");
+            Refresh(announce: false);
+            _timer.Start();
         }
 
         public void Dispose()

@@ -1014,6 +1014,22 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[MainWindow] controller hotplug watch failed: {ex.Message}"); }
 
+        // macOS cross-process controller handoff: the gamepad backend (GameController/IOKit-HID) won't
+        // hand the SAME controller to two processes, so while a child --game-host owns it the parent must
+        // RELEASE this long-lived hotplug manager (its only job — library connect/disconnect toasts — is
+        // invisible during a game anyway). Without this the parent keeps the pad grabbed and the game's
+        // controls are dead at start until the user opens the Controls panel (which re-scans and frees it).
+        // Linux evdev serves concurrent readers, so it's a no-op there. Suspend = close pads + quit the
+        // gamepad subsystem (not merely skip pumping — that left the device held; the bug that regressed
+        // the earlier attempt). The Controls panel's own short-lived manager re-inits on demand for capture.
+        if (OperatingSystem.IsMacOS())
+            Services.GameHostLauncher.OnExternalGameActiveChanged += active =>
+                Dispatcher.UIThread.Post(() =>
+                {
+                    try { if (active) _hotplugMgr?.Suspend(); else _hotplugMgr?.Resume(); }
+                    catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[MainWindow] hotplug suspend/resume: {ex.Message}"); }
+                });
+
         // Warm LibVLC off the UI thread so the first detail-card snap video doesn't
         // pay the multi-second native init on the dispatcher.
         VideoPlaybackService.Instance.StartWarmup();

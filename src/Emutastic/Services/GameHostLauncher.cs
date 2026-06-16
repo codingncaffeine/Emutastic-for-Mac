@@ -44,6 +44,12 @@ namespace Emutastic.Services
         /// Invoked on the UI thread.</summary>
         public static Action<string, string>? OnHostCommand;
 
+        /// <summary>Fires when the FIRST external child game starts (true, on the UI thread) and when the
+        /// LAST one exits (false, on a background thread — the handler must marshal). macOS uses this to
+        /// release/re-acquire the parent's hotplug ControllerManager so the child <c>--game-host</c> can
+        /// own the controller (cross-process gamepad handoff — see ControllerManager.Suspend).</summary>
+        public static Action<bool>? OnExternalGameActiveChanged;
+
         // Live hosts by game id — lets the app push lines down a child's stdin (the app→host half
         // of the command channel; e.g. "reload-cheats" after the cheat editor saves).
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, Process> _liveHosts = new();
@@ -222,8 +228,11 @@ namespace Emutastic.Services
                 return;
             }
 
-            Interlocked.Increment(ref _active);
+            bool firstChild = Interlocked.Increment(ref _active) == 1;
             EmulatorSession.ExternalGameActive = true;
+            // 0→1: tell the parent to release the controller so this child can own it (macOS handoff).
+            // SpawnHost runs on the UI thread, so a direct invoke is dispatcher-safe.
+            if (firstChild) { try { OnExternalGameActiveChanged?.Invoke(true); } catch { } }
             if (game != null) _liveHosts[game.Id] = proc;
             if (game != null) { try { OnGameLaunching?.Invoke(game); } catch { } }
             Trace.WriteLine($"[Launcher] game host pid={proc.Id} core={corePath} rom={romPath}");
@@ -266,7 +275,13 @@ namespace Emutastic.Services
                 {
                     try { File.Delete(results); } catch { }
                     if (game != null) _liveHosts.TryRemove(game.Id, out _);
-                    if (Interlocked.Decrement(ref _active) == 0) EmulatorSession.ExternalGameActive = false;
+                    if (Interlocked.Decrement(ref _active) == 0)
+                    {
+                        EmulatorSession.ExternalGameActive = false;
+                        // 1→0: last child gone — parent re-acquires the controller. On a background
+                        // thread here, so the handler (MainWindow) marshals to the UI thread itself.
+                        try { OnExternalGameActiveChanged?.Invoke(false); } catch { }
+                    }
                 }
 
                 Trace.WriteLine($"[Launcher] game host exited: code={result?.ExitCode}, playSeconds={result?.PlaySeconds}");

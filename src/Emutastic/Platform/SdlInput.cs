@@ -62,6 +62,7 @@ namespace Emutastic.Platform
 
         [DllImport("SDL3")] [return: MarshalAs(UnmanagedType.I1)] static extern bool SDL_InitSubSystem(uint flags);
         [DllImport("SDL3")] static extern void SDL_QuitSubSystem(uint flags);
+        [DllImport("SDL3")] [return: MarshalAs(UnmanagedType.I1)] static extern bool SDL_SetHint([MarshalAs(UnmanagedType.LPUTF8Str)] string name, [MarshalAs(UnmanagedType.LPUTF8Str)] string value);
         [DllImport("SDL3")] static extern void SDL_PumpEvents();
         [DllImport("SDL3")] static extern IntPtr SDL_GetGamepads(out int count);
         [DllImport("SDL3")] static extern IntPtr SDL_OpenGamepad(uint instance_id);
@@ -127,6 +128,14 @@ namespace Emutastic.Platform
         {
             if (_initialized) return;
             _initialized = true;
+            // macOS: Apple's GameController framework only delivers gamepad input to the FOREGROUND/active
+            // app. Our game-host is a child process launched as a bare executable, so a controller that
+            // connects while the child isn't the active app (i.e. hot-plugged after launch) opens but never
+            // delivers any events — which is why a full game restart fixed it (the relaunched child is
+            // foreground when the already-connected pad is enumerated) but reopening/re-initing in place
+            // never did. This hint makes SDL receive gamepad events regardless of foreground state — the
+            // documented fix (SDL: background joystick/gamepad events). Harmless on Linux.
+            SDL_SetHint("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
             SDL_InitSubSystem(SDL_INIT_GAMEPAD);
             Refresh();
             _announceChanges = true;   // pads found by the baseline scan above are not hot-plug events
@@ -290,7 +299,10 @@ namespace Emutastic.Platform
             if (!_initialized) return;
             SDL_PumpEvents();      // ensure hotplug add/remove events are processed
             SDL_UpdateGamepads();  // refresh open-gamepad button/axis state
-            if (++_refreshCounter >= 60) { _refreshCounter = 0; Refresh(); } // re-scan ~1×/sec for hotplug
+            // Hunt fast (~6×/sec) while no pad is open, then back off to ~1×/sec hotplug rescan, so a pad
+            // connected right after launch (parent→child handoff) is opened within ~0.2s, not up to a second.
+            int rescan = _pads.Count == 0 ? 10 : 60;
+            if (++_refreshCounter >= rescan) { _refreshCounter = 0; Refresh(); }
         }
 
         /// <summary>Set keyboard fallback state for player 1 (libretro joypad id).</summary>
