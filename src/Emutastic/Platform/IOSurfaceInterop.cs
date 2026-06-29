@@ -118,6 +118,28 @@ namespace Emutastic.Platform
         }
 
         /// <summary>
+        /// Parent-side host view (Phase 3): a layer-backed NSView embedded in the EmuTV window via Avalonia
+        /// NativeControlHost, whose CALayer displays the latest game IOSurface. Main-thread only (Avalonia's
+        /// UI thread is the process main thread on macOS).
+        /// </summary>
+        public static class HostView
+        {
+            [DllImport(Lib, EntryPoint = "emusurf_view_create")]      public static extern IntPtr CreateView();
+            [DllImport(Lib, EntryPoint = "emusurf_view_layer")]       public static extern IntPtr ViewLayer(IntPtr view);
+            [DllImport(Lib, EntryPoint = "emusurf_view_destroy")]     public static extern void   DestroyView(IntPtr view);
+            [DllImport(Lib, EntryPoint = "emusurf_layer_set_surface")]public static extern void   SetSurface(IntPtr layer, IntPtr surface);
+            [DllImport(Lib, EntryPoint = "emusurf_layer_set_flip")]   public static extern void   SetFlip(IntPtr layer, int flip);
+        }
+
+        /// <summary>Read the latest (slot, seq) the child published into the control/mailbox surface.</summary>
+        public static (int slot, long seq) ReadMailbox(IntPtr controlBase)
+        {
+            if (controlBase == IntPtr.Zero) return (-1, 0);
+            long v; unsafe { v = System.Threading.Volatile.Read(ref *(long*)controlBase); }
+            return ((int)(uint)(v & 0xFFFFFFFF), v >> 32);
+        }
+
+        /// <summary>
         /// Headless runtime self-test of the C# &lt;-&gt; libemusurface marshalling chain (run via
         /// <c>Emutastic --selftest-iosurface</c>). Creates a surface, writes + reads a pattern through
         /// the locked base pointer, then re-looks-it-up by id and confirms the bytes survive. The

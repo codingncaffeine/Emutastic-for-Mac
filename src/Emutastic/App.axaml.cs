@@ -180,11 +180,20 @@ public partial class App : Application
             var swWin = Services.StartupTrace.Start();
             if (files.Length >= 2)
             {
-                var session = new Emutastic.Emulator.EmulatorSession(files[0], files[1]);
-                // Overlay feasibility test: a transparent overlay floated over the in-process GL game.
-                desktop.MainWindow = System.Environment.GetEnvironmentVariable("EMUTASTIC_OVERLAY_TEST") == "1"
-                    ? new Emutastic.Views.GameOverlayWindow(session)
-                    : new Emutastic.Views.EmulatorWindow(session);
+                // Phase 3 embed-test (macOS native single-window EmuTV): host the game in ONE window via a
+                // headless game-host + shared IOSurface, instead of a separate game window.
+                if (System.Environment.GetEnvironmentVariable("EMUTASTIC_EMBED_TEST") == "1")
+                {
+                    desktop.MainWindow = new Emutastic.Views.EmbedTestWindow(files[0], files[1]);
+                }
+                else
+                {
+                    var session = new Emutastic.Emulator.EmulatorSession(files[0], files[1]);
+                    // Overlay feasibility test: a transparent overlay floated over the in-process GL game.
+                    desktop.MainWindow = System.Environment.GetEnvironmentVariable("EMUTASTIC_OVERLAY_TEST") == "1"
+                        ? new Emutastic.Views.GameOverlayWindow(session)
+                        : new Emutastic.Views.EmulatorWindow(session);
+                }
             }
             else
             {

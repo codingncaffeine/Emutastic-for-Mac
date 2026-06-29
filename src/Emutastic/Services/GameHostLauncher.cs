@@ -84,7 +84,8 @@ namespace Emutastic.Services
         /// for this session (e.g. direct CLI launches).
         /// </summary>
         public static void Launch(string corePath, string romPath, string console,
-            Models.Game? game, string? loadStatePath, Action<GameHostResult?>? onExit = null, bool fullscreen = false)
+            Models.Game? game, string? loadStatePath, Action<GameHostResult?>? onExit = null, bool fullscreen = false,
+            bool embedded = false)
         {
             // GL present is now the DEFAULT path: the separate --game-host process runs the decoupled
             // pacing (audio-clock emu thread + vsync present thread), which on this hardware gives correct
@@ -121,15 +122,16 @@ namespace Emutastic.Services
                     // sync, bounded so launch can't hang.
                     try { await syncSvc.EnsureConsoleSavesReadyAsync(console).ConfigureAwait(false); }
                     catch (Exception ex) { CloudSyncLog.Write($"pre-launch memcard sync failed: {ex.Message}"); }
-                    Dispatcher.UIThread.Post(() => SpawnHost(corePath, romPath, console, game, loadStatePath, onExit, fullscreen));
+                    Dispatcher.UIThread.Post(() => SpawnHost(corePath, romPath, console, game, loadStatePath, onExit, fullscreen, embedded));
                 });
                 return;
             }
-            SpawnHost(corePath, romPath, console, game, loadStatePath, onExit, fullscreen);
+            SpawnHost(corePath, romPath, console, game, loadStatePath, onExit, fullscreen, embedded);
         }
 
         private static void SpawnHost(string corePath, string romPath, string console,
-            Models.Game? game, string? loadStatePath, Action<GameHostResult?>? onExit, bool fullscreen = false)
+            Models.Game? game, string? loadStatePath, Action<GameHostResult?>? onExit, bool fullscreen = false,
+            bool embedded = false)
         {
             string results = Path.Combine(Path.GetTempPath(), $"emutastic-host-{Guid.NewGuid():N}.json");
             var psi = new ProcessStartInfo
@@ -226,6 +228,15 @@ namespace Emutastic.Services
             // making the warm-up genuinely permanent across sessions (and across pre-warm runs).
             if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("MESA_SHADER_CACHE_MAX_SIZE")))
                 psi.Environment["MESA_SHADER_CACHE_MAX_SIZE"] = "12G";
+
+            // macOS native single-window EmuTV: render headless into shared IOSurfaces (the parent composites
+            // them in its own window) instead of opening a separate game window. Set ONLY for embedded couch
+            // launches — every other launch path keeps its own window, unchanged.
+            if (embedded && OperatingSystem.IsMacOS())
+            {
+                psi.Environment["EMUTASTIC_PRESENT"] = "gl";
+                psi.Environment["EMUTASTIC_GL_IOSURFACE"] = "1";
+            }
 
             Process proc;
             try { proc = Process.Start(psi)!; }

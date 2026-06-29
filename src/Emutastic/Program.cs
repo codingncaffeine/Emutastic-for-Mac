@@ -91,7 +91,8 @@ sealed class Program
         if (args.Length >= 2 && !args[0].StartsWith("--")
             && System.IO.File.Exists(args[0]) && System.IO.File.Exists(args[1])
             && string.Equals((Environment.GetEnvironmentVariable("EMUTASTIC_PRESENT") ?? "").Trim(), "gl", StringComparison.OrdinalIgnoreCase)
-            && Environment.GetEnvironmentVariable("EMUTASTIC_GAMEHOST") != "0")   // =0 forces in-process (A/B)
+            && Environment.GetEnvironmentVariable("EMUTASTIC_GAMEHOST") != "0"   // =0 forces in-process (A/B)
+            && Environment.GetEnvironmentVariable("EMUTASTIC_EMBED_TEST") != "1")   // =1 falls through to the embed-test window
         {
             Environment.Exit(Emutastic.GameHost.Run(new[] { "--game-host", args[0], args[1] }));
             return;

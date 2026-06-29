@@ -7,8 +7,11 @@ cd "$(dirname "$0")"
 [ "$(uname)" = "Darwin" ] || { echo "[emusurface] not macOS — skipping"; exit 0; }
 CC=${CC:-clang}
 echo "[emusurface] compiling libemusurface.dylib with $CC"
+# emusurface.c is pure C (IOSurface/GL/CVDisplayLink); emusurface_view.m is the AppKit/CALayer host
+# side (Objective-C). Both compile into one dylib.
 "$CC" -O2 -fPIC -Wall -Wno-deprecated-declarations -DGL_SILENCE_DEPRECATION \
       -dynamiclib -install_name "@rpath/libemusurface.dylib" \
-      -o libemusurface.dylib emusurface.c \
-      -framework IOSurface -framework CoreFoundation -framework OpenGL -framework CoreVideo
+      -o libemusurface.dylib emusurface.c emusurface_view.m \
+      -framework IOSurface -framework CoreFoundation -framework OpenGL -framework CoreVideo \
+      -framework Cocoa -framework QuartzCore
 echo "[emusurface] done -> $(pwd)/libemusurface.dylib"
