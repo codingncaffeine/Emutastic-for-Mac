@@ -430,7 +430,9 @@ namespace Emutastic.Emulator
                     else _running = false;
                     break;
                 }
-                case SC_F11:    _glFullscreen = !_glFullscreen; _gl?.SetFullscreen(_glFullscreen); break;
+                // F11 toggles fullscreen on whichever presenter is live: _gl on the inline path,
+                // _wlTop on the macOS DECOUPLED path (a GlPresenter stored in _wlTop).
+                case SC_F11:    _glFullscreen = !_glFullscreen; ((IGamePresenter?)_gl ?? _wlTop)?.SetFullscreen(_glFullscreen); break;
                 case SC_P:      _paused = !_paused; break;
                 case SC_F5:     RequestSaveState("Quick Save"); break;   // upstream's F5 quick save
                 case SC_F7:     RequestQuickLoad(); break;               // upstream's F7 quick load
@@ -729,6 +731,7 @@ namespace Emutastic.Emulator
 
                 if (!_noInputPoll) _input.Poll();
                 ServiceDiskSwap();   // disc-swap chord (L3+Start) + FDS/deferred-insert ticks
+                ServiceQuitChord();  // EmuTV quit chord (L3+R3+L2+R2 held ~1.5s) → quit the game
                 if (_saveStatePending) ExecuteSaveOnEmuThread();   // between retro_run calls, like upstream
                 if (_loadStatePending) ExecuteLoadOnEmuThread();
                 if (_cheatsApplyPending) ExecuteCheatsApplyOnEmuThread();
@@ -1001,6 +1004,7 @@ namespace Emutastic.Emulator
                 // main thread — the present(main) loop owns all SDL pumping there, so the core worker skips it.
                 if (!_noInputPoll && !OperatingSystem.IsMacOS()) _input.Poll();
                 ServiceDiskSwap();   // disc-swap chord (L3+Start) + FDS/deferred-insert ticks
+                ServiceQuitChord();  // EmuTV quit chord (L3+R3+L2+R2 held ~1.5s) → quit the game
                 if (_saveStatePending) ExecuteSaveOnEmuThread();   // between retro_run calls, like upstream
                 if (_loadStatePending) ExecuteLoadOnEmuThread();
                 if (_cheatsApplyPending) ExecuteCheatsApplyOnEmuThread();
@@ -2793,6 +2797,29 @@ namespace Emutastic.Emulator
                 "LeftAlt" => 226, "RightAlt" => 230,
                 _ => -1,
             };
+        }
+
+        // ── EmuTV quit chord ────────────────────────────────────────────────────────────────────────
+        // The same L3+R3+L2+R2 chord that launches EmuTV quits a running game when held ~1.5s, so the
+        // couch shell needs no keyboard to exit. Frame-counted on the emu thread; raw reads in SdlInput's
+        // panel id space (7/8 = left/right stick click, 100/101 = left/right trigger), port 0.
+        private int _quitChordFrames;
+        private bool _quitChordFired;
+        private const int QuitChordFramesRequired = 90;   // ~1.5s at 60fps
+
+        private void ServiceQuitChord()
+        {
+            bool held = _input.IsRawControlDown(7, 0) && _input.IsRawControlDown(8, 0)
+                     && _input.IsRawControlDown(100, 0) && _input.IsRawControlDown(101, 0);
+            if (held)
+            {
+                if (!_quitChordFired && ++_quitChordFrames >= QuitChordFramesRequired)
+                {
+                    _quitChordFired = true;
+                    RequestQuit();
+                }
+            }
+            else _quitChordFrames = 0;
         }
 
         // Called once per emu frame (after input poll). Detects the disc-swap chord (rising edge) and
