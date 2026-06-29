@@ -1348,10 +1348,26 @@ namespace Emutastic.Views
             // Fullscreen is set here per-platform rather than in XAML: on macOS WindowState=FullScreen
             // does nothing on a borderless window (and worse, it re-applies after a game and leaves the
             // window in a half-broken native fullscreen presentation — Dock/menu show, window non-key).
-            // Known-good baseline: XAML WindowState=FullScreen latches macOS's auto-hide of the Dock/menu
-            // bar, then ApplyMacFullScreen sizes the borderless window to cover the display. (Earlier
-            // attempts to drive the chrome explicitly destabilized the window — it would open then close.)
+            // Launch path is left exactly as the known-good baseline: XAML WindowState=FullScreen latches
+            // macOS's auto-hide of the Dock/menu bar, then ApplyMacFullScreen sizes the borderless window.
+            // (Chrome is hidden fine on launch — the only gap is AFTER a game, handled in ReactivateAfterGame.)
             if (OperatingSystem.IsMacOS()) { ApplyMacFullScreen(); LogMacWin("OnOpened"); }
+        }
+
+        // macOS: hide (on) / restore (off) the Dock + menu bar via the parent app's presentation options.
+        // The parent EmuTV app is a proper frontmost regular app, so these apply reliably here. Synchronous,
+        // no window-geometry side effects — safe to call in OnOpened/OnClosed without destabilizing display.
+        private void MacSetCouchChrome(bool on)
+        {
+            if (!OperatingSystem.IsMacOS()) return;
+            try
+            {
+                IntPtr nsApp = Platform.Gl.objc_msgSend_ret(Platform.Gl.objc_getClass("NSApplication"), Platform.Gl.sel_registerName("sharedApplication"));
+                if (nsApp == IntPtr.Zero) return;
+                ulong opts = on ? (Platform.Gl.NSAppPresentationHideDock | Platform.Gl.NSAppPresentationHideMenuBar) : 0UL;
+                Platform.Gl.objc_msgSend_void_ulong(nsApp, Platform.Gl.sel_registerName("setPresentationOptions:"), opts);
+            }
+            catch { }
         }
 
         // macOS: cover the whole display with the borderless window. Re-asserted after a game exits.
@@ -1413,6 +1429,10 @@ namespace Emutastic.Views
                         Platform.Gl.objc_msgSend_void_ptr(h.Handle, Platform.Gl.sel_registerName("makeKeyAndOrderFront:"), IntPtr.Zero);
                 }
                 catch { }
+                // The game-host handoff drops the launch-time auto-hide of the Dock/menu bar, so re-hide
+                // them explicitly here (parent app is frontmost → presentation options apply). Hide BEFORE
+                // re-positioning so the window isn't clamped below the menu bar (which would leave a strip).
+                MacSetCouchChrome(true);
                 try { ApplyMacFullScreen(); } catch { }
                 LogMacWin("ReactivateAfterGame:after");
             }
@@ -1421,6 +1441,7 @@ namespace Emutastic.Views
         protected override void OnClosed(EventArgs e)
         {
             _closed = true;
+            MacSetCouchChrome(false);   // restore the Dock + menu bar for the desktop library (no-op if never hidden)
             EmuTvThemeRenderer.OnAsyncImageReady = null;
             _imgReadyDebounce?.Stop();
             _inputTimer?.Stop();
