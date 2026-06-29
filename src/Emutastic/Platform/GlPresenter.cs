@@ -137,6 +137,13 @@ namespace Emutastic.Platform
             // the first click on the game window just activates it and you have to click the cog/menus a
             // second time. Let that focusing click through so a single click always registers.
             if (OperatingSystem.IsMacOS()) SDL_SetHint("SDL_MOUSE_FOCUS_CLICKTHROUGH", "1");
+            // macOS: SDL_SetWindowFullscreen defaults to a NATIVE fullscreen Space, which breaks the EmuTV
+            // couch flow — the game-host (child process) makes its own Space on top of EmuTvWindow's Space,
+            // and on quit macOS gets stuck mid-Space-slide ("slides right, won't close, inaccessible"). Force
+            // borderless-desktop fullscreen instead (covers the screen, no Space, tears down cleanly on exit).
+            // Must be set before window creation. The green-button native fullscreen still works via
+            // MacToggleFullscreen (handled separately in SetFullscreen).
+            if (OperatingSystem.IsMacOS()) SDL_SetHint("SDL_VIDEO_MAC_FULLSCREEN_SPACES", "0");
             SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
             SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY); // fixed-function quad
             SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);

@@ -78,6 +78,12 @@ namespace Emutastic.Views
         private bool _closed;
         private int  _videoGen; // bumped on every stop/selection change to cancel in-flight video work
 
+        // macOS native snap path (libsnapvideo / AVFoundation) — LibVLC has no arm64 native lib on macOS,
+        // so the couch shell decodes snaps the same way the library detail card does (GameDetailWindow).
+        private IntPtr _snapHandle;
+        private readonly object _snapLock = new();
+        private System.Threading.CancellationTokenSource? _snapCts;
+
         // Parameterless ctor for the Avalonia XAML loader / design-time; the app uses the
         // (controller, db) overload.
         public EmuTvWindow() : this(null, null) { }
@@ -411,6 +417,11 @@ namespace Emutastic.Views
 
             _crossfadeDone = false;
 
+            // macOS: LibVLCSharp can't resolve a native libvlc on Apple Silicon (it probes a hardcoded
+            // osx-x64 path and nothing is bundled), so decode the snap with the native AVFoundation shim
+            // (libsnapvideo) — exactly how the library detail card plays snaps on macOS.
+            if (OperatingSystem.IsMacOS()) { await PlayTvVideoNativeAsync(mp4Path, forGame, gen); return; }
+
             const int w = 320, h = 240;
             int stride = w * 4;
 
@@ -489,6 +500,95 @@ namespace Emutastic.Views
             });
         }
 
+        // macOS: decode the snap via libsnapvideo (AVFoundation) on a background task; each BGRA frame is
+        // blitted into the WriteableBitmap on the UI thread, looping at the end. No LibVLC, nothing bundled.
+        private async Task PlayTvVideoNativeAsync(string mp4Path, Game forGame, int gen)
+        {
+            int w = 0, h = 0; double fps = 0;
+            IntPtr handle = await Task.Run(() =>
+            {
+                try { return Platform.SnapVideoNative.snap_open(mp4Path, out w, out h, out fps); }
+                catch (Exception ex) { Trace.WriteLine($"[EmuTv] snap_open failed: {ex.Message}"); return IntPtr.Zero; }
+            });
+            if (gen != _videoGen || _closed || handle == IntPtr.Zero || w <= 0 || h <= 0)
+            {
+                if (handle != IntPtr.Zero) Platform.SnapVideoNative.snap_close(handle);
+                return;
+            }
+
+            int stride = w * 4;
+            IntPtr localBuffer;
+            WriteableBitmap localBitmap;
+            System.Threading.CancellationToken token;
+            lock (_snapLock)
+            {
+                if (gen != _videoGen || _closed) { Platform.SnapVideoNative.snap_close(handle); return; }
+                if (_videoBuffer != IntPtr.Zero) Marshal.FreeHGlobal(_videoBuffer);
+                _videoBuffer = Marshal.AllocHGlobal(stride * h);
+                _videoBitmap = new WriteableBitmap(new PixelSize(w, h), new Vector(96, 96),
+                    Avalonia.Platform.PixelFormat.Bgra8888, Avalonia.Platform.AlphaFormat.Opaque);
+                _snapHandle = handle;
+                localBuffer = _videoBuffer;
+                localBitmap = _videoBitmap;
+                _snapCts = new System.Threading.CancellationTokenSource();
+                token = _snapCts.Token;
+            }
+
+            Image sink = _videoTarget ?? TvVideoImage;
+            int frameMs = fps > 1 ? (int)Math.Round(1000.0 / fps) : 33;
+
+            _ = Task.Run(async () =>
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                long shown = 0;
+                try
+                {
+                    while (!token.IsCancellationRequested && gen == _videoGen && !_closed)
+                    {
+                        int rc;
+                        // Decode + any looping rewind under the lock so StopVideo/OnClosed can't close the
+                        // handle or free the buffer mid-call.
+                        lock (_snapLock)
+                        {
+                            if (_snapHandle != handle || _videoBuffer != localBuffer) break;   // stopped/replaced
+                            rc = Platform.SnapVideoNative.snap_next_bgra(handle, localBuffer, stride * h);
+                            if (rc == 0) { Platform.SnapVideoNative.snap_rewind(handle); rc = -2; }
+                        }
+                        if (rc == -2) { shown = 0; sw.Restart(); continue; }   // looped
+                        if (rc < 0) break;
+
+                        Dispatcher.UIThread.Post(() => BlitTvSnapFrame(localBuffer, localBitmap, sink, h, stride, gen));
+                        shown++;
+                        long delay = shown * frameMs - sw.ElapsedMilliseconds;
+                        if (delay > 0) { try { await Task.Delay((int)Math.Min(delay, 1000), token); } catch { break; } }
+                    }
+                }
+                catch (Exception ex) { Trace.WriteLine($"[EmuTv] native snap loop ended: {ex.Message}"); }
+            }, token);
+        }
+
+        // Copy the decoded BGRA frame into the WriteableBitmap and, on the first frame, reveal the video
+        // (crossfade out the cover/standby art). UI thread only — so _videoGen/_videoBuffer can't change
+        // mid-blit. macOS native snap path.
+        private void BlitTvSnapFrame(IntPtr srcBuf, WriteableBitmap bmp, Image sink, int height, int stride, int gen)
+        {
+            if (_closed || gen != _videoGen || !ReferenceEquals(_videoBitmap, bmp) || srcBuf == IntPtr.Zero) return;
+            using (var fb = bmp.Lock())
+            {
+                unsafe
+                {
+                    byte* src = (byte*)srcBuf;
+                    byte* dst = (byte*)fb.Address;
+                    int dstStride = fb.RowBytes;
+                    int rowBytes = Math.Min(stride, dstStride);
+                    for (int y = 0; y < height; y++)
+                        Buffer.MemoryCopy(src + (long)y * stride, dst + (long)y * dstStride, dstStride, rowBytes);
+                }
+            }
+            if (!_crossfadeDone) { _crossfadeDone = true; sink.Source = bmp; sink.IsVisible = true; }
+            else sink.InvalidateVisual();
+        }
+
         private void StopVideo()
         {
             _videoGen++; // cancel any in-flight fetch/play for the previous selection
@@ -499,6 +599,15 @@ namespace Emutastic.Views
                 try { p.Stop(); } catch { }
                 try { p.Dispose(); } catch { }
             }
+            // macOS native snap decoder: cancel the loop and close the handle under the lock so the
+            // background decode can't touch a freed handle/buffer.
+            System.Threading.CancellationTokenSource? cts;
+            lock (_snapLock)
+            {
+                cts = _snapCts; _snapCts = null;
+                if (_snapHandle != IntPtr.Zero) { try { Platform.SnapVideoNative.snap_close(_snapHandle); } catch { } _snapHandle = IntPtr.Zero; }
+            }
+            if (cts != null) { try { cts.Cancel(); } catch { } try { cts.Dispose(); } catch { } }
             _crossfadeDone = false;
             TvVideoImage.IsVisible = false;
             TvStandByImage.IsVisible = false;

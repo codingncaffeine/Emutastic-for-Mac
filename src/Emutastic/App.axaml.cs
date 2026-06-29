@@ -72,6 +72,9 @@ public partial class App : Application
 
     public override void Initialize()
     {
+        // macOS menu-bar / app-menu title. Without this Avalonia shows its default "Avalonia
+        // Application" name (the bundle's CFBundleName isn't consulted for the app menu).
+        Name = "Emutastic";
         AvaloniaXamlLoader.Load(this);
     }
 
