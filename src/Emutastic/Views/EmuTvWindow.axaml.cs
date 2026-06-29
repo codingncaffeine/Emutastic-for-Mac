@@ -1345,7 +1345,7 @@ namespace Emutastic.Views
             // AppKit ignores toggleFullScreen on an undecorated NSWindow — so WindowState=FullScreen falls
             // back to the default content size, centered. Cover the whole display manually instead. (Linux/
             // Wayland honors FullScreen on a borderless toplevel, so it's left to the XAML there.)
-            if (OperatingSystem.IsMacOS()) ApplyMacFullScreen();
+            if (OperatingSystem.IsMacOS()) { ApplyMacFullScreen(); LogMacWin("OnOpened"); }
         }
 
         // macOS: cover the whole display with the borderless window (see OnOpened for why FullScreen
@@ -1358,6 +1358,31 @@ namespace Emutastic.Views
             Position = screen.Bounds.Position;            // physical top-left (covers the menu-bar row)
             Width  = screen.Bounds.Width  / screen.Scaling;   // Bounds is physical px; W/H are DIPs
             Height = screen.Bounds.Height / screen.Scaling;
+        }
+
+        // Diagnostic: dump the macOS window/app presentation state so we can see what differs between a
+        // fresh EmuTV launch (chrome covered) and the post-game return (Dock/menu visible). [EmuTvMac]
+        private void LogMacWin(string tag)
+        {
+            if (!OperatingSystem.IsMacOS()) return;
+            try
+            {
+                var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary;
+                string scr = screen != null ? $"bounds={screen.Bounds} scale={screen.Scaling}" : "screen=null";
+                long level = 0; ulong presOpts = 0; bool keyWin = false;
+                var h = TryGetPlatformHandle();
+                if (h != null && h.Handle != IntPtr.Zero)
+                {
+                    level  = (long)Platform.Gl.objc_msgSend_ulong(h.Handle, Platform.Gl.sel_registerName("level"));
+                    keyWin = Platform.Gl.objc_msgSend_ulong(h.Handle, Platform.Gl.sel_registerName("isKeyWindow")) != 0;
+                }
+                IntPtr nsApp = Platform.Gl.objc_msgSend_ret(Platform.Gl.objc_getClass("NSApplication"), Platform.Gl.sel_registerName("sharedApplication"));
+                if (nsApp != IntPtr.Zero)
+                    presOpts = Platform.Gl.objc_msgSend_ulong(nsApp, Platform.Gl.sel_registerName("currentSystemPresentationOptions"));
+                System.Diagnostics.Trace.WriteLine($"[EmuTvMac] {tag}: pos={Position} size={Width}x{Height} state={WindowState} " +
+                    $"nsLevel={level} key={keyWin} presentationOpts={presOpts} hdesc={h?.HandleDescriptor} {scr}");
+            }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[EmuTvMac] {tag}: log failed: {ex.Message}"); }
         }
 
         // macOS: after the separate-process game-host exits, bring Emutastic + this window back to the
@@ -1379,7 +1404,9 @@ namespace Emutastic.Views
                             Platform.Gl.sel_registerName("activateIgnoringOtherApps:"), true);
                 }
                 catch { }
+                LogMacWin("ReactivateAfterGame:before");
                 try { ApplyMacFullScreen(); } catch { }
+                LogMacWin("ReactivateAfterGame:after");
             }
         }
 
