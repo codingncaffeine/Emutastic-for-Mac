@@ -37,13 +37,14 @@ namespace Emutastic.Views
                 if (verb != "iosurface") return;
                 try
                 {
-                    var p = arg.Split(' ');
+                    var p = arg.Split(' ');             // "<w>x<h> <ctrl> <input> <id0>,<id1>,<id2>"
                     var wh = p[0].Split('x');
                     int w = int.Parse(wh[0]), h = int.Parse(wh[1]);
                     uint ctrl = uint.Parse(p[1]);
-                    uint[] ids = p[2].Split(',').Select(uint.Parse).ToArray();
-                    _view.Bind(w, h, ctrl, ids);
-                    System.Diagnostics.Trace.WriteLine($"[EmbedTest] bound {w}x{h} ctrl={ctrl} ids=[{string.Join(",", ids)}]");
+                    uint input = uint.Parse(p[2]);
+                    uint[] ids = p[3].Split(',').Select(uint.Parse).ToArray();
+                    _view.Bind(w, h, ctrl, input, ids);
+                    System.Diagnostics.Trace.WriteLine($"[EmbedTest] bound {w}x{h} ctrl={ctrl} input={input} ids=[{string.Join(",", ids)}]");
                 }
                 catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[EmbedTest] parse failed: {ex}"); }
             };

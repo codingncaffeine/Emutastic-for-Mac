@@ -29,6 +29,7 @@ namespace Emutastic.Views
         private IntPtr _controlBase;
         private long _lastSeq = -1;
         private int _curSlot = -1;
+        private ControllerForwarder? _forwarder;   // parent reads the controller, forwards to the child
 
         protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
         {
@@ -36,6 +37,9 @@ namespace Emutastic.Views
             {
                 _view = IOSurfaceInterop.HostView.CreateView();
                 _layer = IOSurfaceInterop.HostView.ViewLayer(_view);
+                // The game-host renders into the IOSurface with GL's bottom-left origin, so the layer must
+                // flip vertically to show it upright (confirmed: without this the picture is upside down).
+                if (_layer != IntPtr.Zero) IOSurfaceInterop.HostView.SetFlip(_layer, 1);
                 if (_view != IntPtr.Zero) return new PlatformHandle(_view, "NSView");
             }
             return base.CreateNativeControlCore(parent);   // non-macOS / failure: empty host
@@ -53,7 +57,7 @@ namespace Emutastic.Views
         /// the render ring; <paramref name="controlId"/> is the mailbox surface carrying the latest slot|seq.
         /// Idempotent: a re-bind (new launch) replaces the previous binding. UI thread.
         /// </summary>
-        public void Bind(int width, int height, uint controlId, uint[] ringIds)
+        public void Bind(int width, int height, uint controlId, uint inputId, uint[] ringIds)
         {
             Dispatcher.UIThread.VerifyAccess();
             Unbind();
@@ -64,6 +68,9 @@ namespace Emutastic.Views
             _control = controlId != 0 ? IOSurfaceInterop.IOSurface.Lookup(controlId) : null;
             _controlBase = _control != null ? _control.Lock(true) : IntPtr.Zero;   // stable mapped base for polling
             _lastSeq = -1; _curSlot = -1;
+
+            // We (the active parent) read the controller and forward it to the headless child.
+            _forwarder = ControllerForwarder.Start(inputId);
 
             // Poll faster than any display refresh (≈125 Hz) so we never lag a produced frame; the actual
             // present cadence is still the WindowServer compositing the layer at vsync. Reading the mailbox
@@ -76,6 +83,7 @@ namespace Emutastic.Views
         public void Unbind()
         {
             StopPoll();
+            _forwarder?.Dispose(); _forwarder = null;
             if (_control != null) { _control.Unlock(true); _control.Dispose(); _control = null; _controlBase = IntPtr.Zero; }
             foreach (var s in _ring) s?.Dispose();
             _ring = Array.Empty<IOSurfaceInterop.IOSurface?>();

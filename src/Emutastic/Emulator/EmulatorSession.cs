@@ -1174,8 +1174,9 @@ namespace Emutastic.Emulator
             if (gl.IoSurfaceMode)
             {
                 gl.GetIoSize(out int iw, out int ih);
-                EmitHostCommand?.Invoke($"iosurface {iw}x{ih} {gl.IoControlId} {string.Join(",", gl.IoSurfaceIds)}");
-                Trace.WriteLine($"[Emu] EmuTV embedded: IOSurface ring {iw}x{ih} ctrl={gl.IoControlId} ids=[{string.Join(",", gl.IoSurfaceIds)}]");
+                _input.EnableEmbedded();   // input arrives via the parent's forwarded mailbox, not local SDL
+                EmitHostCommand?.Invoke($"iosurface {iw}x{ih} {gl.IoControlId} {gl.IoInputId} {string.Join(",", gl.IoSurfaceIds)}");
+                Trace.WriteLine($"[Emu] EmuTV embedded: IOSurface ring {iw}x{ih} ctrl={gl.IoControlId} input={gl.IoInputId} ids=[{string.Join(",", gl.IoSurfaceIds)}]");
             }
             Trace.WriteLine("[Emu] GL present ACTIVE (DECOUPLED: present thread + audio-clock emu thread)");
             RunPresenterOsdLoop(ready, "DECOUPLED");
@@ -1777,7 +1778,13 @@ namespace Emutastic.Emulator
                 // macOS: the core worker doesn't pump SDL (must be main-thread only), so the present(main)
                 // loop refreshes gamepad/joystick state here each frame; the core reads cached button/axis
                 // state thread-safely. Keyboard arrives via OnGlKey inside PumpEvents below.
-                if (OperatingSystem.IsMacOS() && !_noInputPoll) _input.Poll();
+                // Embedded EmuTV: read the parent's forwarded controller mailbox instead of local SDL (the
+                // headless child can't read the controller while inactive on macOS). Else the normal poll.
+                if (OperatingSystem.IsMacOS() && !_noInputPoll)
+                {
+                    if (_input.IsEmbedded && _wlTop is GlPresenter gp) _input.ApplyForwarded(gp.IoInputBase);
+                    else _input.Poll();
+                }
                 _wlTop.PumpEvents();   // drain input first so a click/hover affects THIS frame's HUD
 
                 double nowMs = clock.Elapsed.TotalMilliseconds;

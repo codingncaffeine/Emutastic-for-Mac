@@ -63,6 +63,14 @@ namespace Emutastic.Platform
         private Platform.IOSurfaceInterop.IOSurface? _ioCtrl;
         private IntPtr _ioCtrlBase;
         private IntPtr _ioVsync;   // CVDisplayLink handle: paces the headless present to the display refresh
+        // Input mailbox (parent → child): the active parent reads the controller and writes its raw state
+        // here; the child applies it (it can't read the controller itself while headless/inactive on macOS).
+        private Platform.IOSurfaceInterop.IOSurface? _ioInput;
+        private IntPtr _ioInputBase;
+        /// <summary>Global id of the input mailbox surface (parent writes controller state, child reads).</summary>
+        public uint IoInputId { get; private set; }
+        /// <summary>The child's read-mapped base of the input mailbox (for SdlInput.ApplyForwarded).</summary>
+        public IntPtr IoInputBase => _ioInputBase;
         /// <summary>True when rendering headless into IOSurfaces instead of a visible window (macOS embedded).</summary>
         public bool IoSurfaceMode => _ioMode;
         /// <summary>The ring's global IOSurface ids — handed to the parent so it can look them up. Empty until ready.</summary>
@@ -316,6 +324,12 @@ namespace Emutastic.Platform
             IoControlId = _ioCtrl.Id;
             _ioCtrlBase = _ioCtrl.Lock(false);
             unsafe { System.Threading.Volatile.Write(ref *(long*)_ioCtrlBase, PackMailbox(-1, 0)); }
+
+            // Input mailbox (parent writes controller state, child reads via SdlInput.ApplyForwarded).
+            _ioInput = Platform.IOSurfaceInterop.IOSurface.Create(64, 64)
+                ?? throw new InvalidOperationException("IOSurface.Create(input) failed");
+            IoInputId = _ioInput.Id;
+            _ioInputBase = _ioInput.Lock(true);   // read-mapped; coherent CPU shared memory on Apple Silicon
 
             // CVDisplayLink so the headless present blocks to the real display refresh (no SwapWindow here).
             _ioVsync = Platform.IOSurfaceInterop.Vsync.Create();
@@ -807,6 +821,7 @@ namespace Emutastic.Platform
                         _ioSurf[i]?.Dispose(); _ioSurf[i] = null;
                     }
                 if (_ioCtrl != null) { _ioCtrl.Unlock(false); _ioCtrl.Dispose(); _ioCtrl = null; _ioCtrlBase = IntPtr.Zero; }
+                if (_ioInput != null) { _ioInput.Unlock(true); _ioInput.Dispose(); _ioInput = null; _ioInputBase = IntPtr.Zero; }
             }
             if (_ioVsync != IntPtr.Zero) { Platform.IOSurfaceInterop.Vsync.Destroy(_ioVsync); _ioVsync = IntPtr.Zero; }
             if (_ctx != IntPtr.Zero) { SDL_GL_DestroyContext(_ctx); _ctx = IntPtr.Zero; }
