@@ -1348,17 +1348,7 @@ namespace Emutastic.Views
             // Fullscreen is set here per-platform rather than in XAML: on macOS WindowState=FullScreen
             // does nothing on a borderless window (and worse, it re-applies after a game and leaves the
             // window in a half-broken native fullscreen presentation — Dock/menu show, window non-key).
-            if (OperatingSystem.IsMacOS())
-            {
-                // Order matters: hide the Dock/menu bar FIRST, THEN position. If we position while the menu
-                // bar is still visible, macOS clamps the window's top below it (y≈30); hiding the bar
-                // afterwards then leaves a wallpaper-coloured strip in that reclaimed space.
-                MacSetCouchChrome(true);
-                ApplyMacFullScreen();
-                LogMacWin("OnOpened");
-                // Re-assert next tick in case the menu-bar hide hadn't freed the top strip synchronously.
-                Dispatcher.UIThread.Post(() => { if (!_closed) { ApplyMacFullScreen(); LogMacWin("OnOpened:reassert"); } });
-            }
+            if (OperatingSystem.IsMacOS()) { ApplyMacCouch(); LogMacWin("OnOpened"); }
             else WindowState = WindowState.FullScreen;   // Linux/Wayland honors FullScreen on a borderless toplevel
         }
 
@@ -1378,6 +1368,19 @@ namespace Emutastic.Views
                 Platform.Gl.objc_msgSend_void_ulong(nsApp, Platform.Gl.sel_registerName("setPresentationOptions:"), opts);
             }
             catch { }
+        }
+
+        // macOS couch coverage, in the order that proved reliable:
+        //  1) position+size while shown (window displays; macOS may clamp the top below the menu bar),
+        //  2) hide the Dock/menu bar (safe now that the window is shown — doing it first broke display),
+        //  3) re-position so the window fills the now-reclaimed top strip (no wallpaper gap),
+        //  4) re-assert once next tick in case the menu-bar hide wasn't synchronous.
+        private void ApplyMacCouch()
+        {
+            ApplyMacFullScreen();
+            MacSetCouchChrome(true);
+            ApplyMacFullScreen();
+            Dispatcher.UIThread.Post(() => { if (!_closed) { ApplyMacFullScreen(); LogMacWin("ApplyMacCouch:reassert"); } });
         }
 
         // macOS: cover the whole display with the borderless window (see OnOpened for why FullScreen
@@ -1440,9 +1443,7 @@ namespace Emutastic.Views
                         Platform.Gl.objc_msgSend_void_ptr(h.Handle, Platform.Gl.sel_registerName("makeKeyAndOrderFront:"), IntPtr.Zero);
                 }
                 catch { }
-                MacSetCouchChrome(true);   // re-hide the Dock + menu bar FIRST (the handoff reset them)...
-                try { ApplyMacFullScreen(); } catch { }   // ...then re-cover, so the window isn't clamped below the menu bar
-                Dispatcher.UIThread.Post(() => { if (!_closed) { ApplyMacFullScreen(); LogMacWin("ReactivateAfterGame:reassert"); } });
+                ApplyMacCouch();   // re-cover + re-hide chrome (same proven order as the initial open)
                 LogMacWin("ReactivateAfterGame:after");
             }
         }

@@ -1367,8 +1367,10 @@ public partial class MainWindow : Window
             tv.Closed += (_, _) =>
             {
                 _tvModeOpen = false;
-                Show();
-                Activate();
+                // Guard: during app shutdown the main window can already be closed, and Show() on a closed
+                // window throws "Cannot re-show a closed window", crashing the dispatcher. Re-show only when
+                // we're actually returning to the library.
+                try { Show(); Activate(); } catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[MainWindow] re-show after EmuTV skipped: {ex.Message}"); }
             };
             Hide();
             tv.Show();
