@@ -1348,8 +1348,26 @@ namespace Emutastic.Views
             // Fullscreen is set here per-platform rather than in XAML: on macOS WindowState=FullScreen
             // does nothing on a borderless window (and worse, it re-applies after a game and leaves the
             // window in a half-broken native fullscreen presentation — Dock/menu show, window non-key).
-            if (OperatingSystem.IsMacOS()) { ApplyMacFullScreen(); LogMacWin("OnOpened"); }
+            if (OperatingSystem.IsMacOS()) { ApplyMacFullScreen(); MacSetCouchChrome(true); LogMacWin("OnOpened"); }
             else WindowState = WindowState.FullScreen;   // Linux/Wayland honors FullScreen on a borderless toplevel
+        }
+
+        // macOS: explicitly hide the Dock + menu bar while the couch shell is up. The parent app IS a
+        // proper frontmost regular app, so NSApplication presentation options apply reliably here (unlike
+        // the child game-host, where they no-op). Deterministic — doesn't rely on the fragile "borderless
+        // window covering the screen auto-hides chrome" heuristic, which didn't survive a game round-trip.
+        // Cleared (→ 0) when the shell closes so the desktop library gets its menu bar back.
+        private void MacSetCouchChrome(bool on)
+        {
+            if (!OperatingSystem.IsMacOS()) return;
+            try
+            {
+                IntPtr nsApp = Platform.Gl.objc_msgSend_ret(Platform.Gl.objc_getClass("NSApplication"), Platform.Gl.sel_registerName("sharedApplication"));
+                if (nsApp == IntPtr.Zero) return;
+                ulong opts = on ? (Platform.Gl.NSAppPresentationHideDock | Platform.Gl.NSAppPresentationHideMenuBar) : 0UL;
+                Platform.Gl.objc_msgSend_void_ulong(nsApp, Platform.Gl.sel_registerName("setPresentationOptions:"), opts);
+            }
+            catch { }
         }
 
         // macOS: cover the whole display with the borderless window (see OnOpened for why FullScreen
@@ -1403,22 +1421,17 @@ namespace Emutastic.Views
                     IntPtr nsApp = Platform.Gl.objc_msgSend_ret(
                         Platform.Gl.objc_getClass("NSApplication"),
                         Platform.Gl.sel_registerName("sharedApplication"));
+                    // [[NSApplication sharedApplication] activateIgnoringOtherApps:YES]
                     if (nsApp != IntPtr.Zero)
-                    {
-                        // [[NSApplication sharedApplication] activateIgnoringOtherApps:YES]
                         Platform.Gl.objc_msgSend_void_bool(nsApp, Platform.Gl.sel_registerName("activateIgnoringOtherApps:"), true);
-                        // Clear the leftover NSApplicationPresentationFullScreen (1024) state from the
-                        // handoff, back to the fresh-launch value (0) so chrome auto-hides over us again.
-                        Platform.Gl.objc_msgSend_void_ulong(nsApp, Platform.Gl.sel_registerName("setPresentationOptions:"), 0UL);
-                    }
-                    // Make THIS window key + front again (post-game it comes back non-key, which is why
-                    // macOS stopped auto-hiding the Dock/menu over the screen-covering borderless window).
+                    // Make THIS window key + front again (post-game it comes back non-key).
                     var h = TryGetPlatformHandle();
                     if (h != null && h.Handle != IntPtr.Zero)
                         Platform.Gl.objc_msgSend_void_ptr(h.Handle, Platform.Gl.sel_registerName("makeKeyAndOrderFront:"), IntPtr.Zero);
                 }
                 catch { }
                 try { ApplyMacFullScreen(); } catch { }
+                MacSetCouchChrome(true);   // re-hide the Dock + menu bar (the handoff reset them)
                 LogMacWin("ReactivateAfterGame:after");
             }
         }
@@ -1426,6 +1439,7 @@ namespace Emutastic.Views
         protected override void OnClosed(EventArgs e)
         {
             _closed = true;
+            MacSetCouchChrome(false);   // restore the Dock + menu bar for the desktop library
             EmuTvThemeRenderer.OnAsyncImageReady = null;
             _imgReadyDebounce?.Stop();
             _inputTimer?.Stop();
