@@ -636,20 +636,17 @@ namespace Emutastic.Platform
         }
 
         // macOS: our borderless-fullscreen game window doesn't auto-hide the Dock / menu bar the way SDL's
-        // real fullscreen did, so set NSApplication presentation options to hide them while the game runs.
-        // Restored on Dispose (and automatically when this game-host process exits). [NSApp must be active.]
+        // real fullscreen did. NSApplication presentation options don't work here (the spawned game-host
+        // SDL process isn't the "frontmost regular app" they require, so the call silently no-ops). Instead
+        // raise the WINDOW above the menu bar (level 24) and Dock (level 20) so it simply covers them —
+        // deterministic, no dependence on app-active state. NSStatusWindowLevel = 25; normal = 0.
         private bool _macHidChrome;
         private void MacSetFullscreenChrome(bool on)
         {
             if (!OperatingSystem.IsMacOS()) return;
-            try
-            {
-                IntPtr nsApp = objc_msgSend_ret(objc_getClass("NSApplication"), sel_registerName("sharedApplication"));
-                if (nsApp == IntPtr.Zero) return;
-                objc_msgSend_void_ulong(nsApp, sel_registerName("setPresentationOptions:"),
-                    on ? (NSAppPresentationHideDock | NSAppPresentationHideMenuBar) : 0UL);
-                _macHidChrome = on;
-            }
+            IntPtr w = MacNsWindow();
+            if (w == IntPtr.Zero) return;
+            try { objc_msgSend_void_ulong(w, sel_registerName("setLevel:"), on ? 25UL : 0UL); _macHidChrome = on; }
             catch { }
         }
 
