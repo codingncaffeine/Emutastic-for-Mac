@@ -10,7 +10,7 @@
         WindowStartupLocation="CenterScreen"
         UseLayoutRounding="True"
         Background="#FF080B12">
-    <Grid>
+    <Grid x:Name="RootGrid">
         <Grid.Background>
             <RadialGradientBrush GradientOrigin="50%,42%" Center="50%,42%" RadiusX="95%" RadiusY="95%">
                 <GradientStop Color="#FF13203A" Offset="0"/>

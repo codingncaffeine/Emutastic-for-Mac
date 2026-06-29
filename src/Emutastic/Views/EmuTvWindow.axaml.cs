@@ -640,33 +640,32 @@ namespace Emutastic.Views
 
                 string corePath = coreManager.GetCorePathForGame(game)!;
 
-                // The Linux port runs ALL consoles out-of-process via the game-host (the legacy
-                // in-process EmulatorWindow path and the upstream PS2 ChildHostLauncher / PS3
-                // external-emulator special-cases collapse into this single launch). Resume EmuTV
-                // input + refresh preview/saves when the host exits. (PS3/RPCS3 would route here
-                // too once the port grows that core.)
+                // Shared post-game cleanup (re-arm EmuTV nav, refresh preview/saves). On macOS embedded
+                // there is NO separate game window and we never lost focus, so the activation hacks are gone.
+                Action resumeCouch = () =>
+                {
+                    _aLatch = true; _bLatch = true; _rightLatch = true; _navDir = 0; _navHoldTicks = 0;
+                    _inputTimer?.Start();
+                    if (GameList.SelectedItem is Game refreshGame)
+                    { _videoDebounce.Stop(); _videoDebounce.Start(); LoadSavesFor(refreshGame); }
+                };
+
+                // macOS NATIVE single-window EmuTV: the game renders headless into a shared IOSurface that we
+                // composite INSIDE this window (no second window, no focus handoff → the OS keeps the Dock/menu
+                // hidden because EmuTV stays the active fullscreen window). Every other platform keeps the
+                // out-of-process game window (unchanged).
+                if (OperatingSystem.IsMacOS())
+                {
+                    LaunchEmbedded(corePath, game, statePath, resumeCouch);
+                    return;
+                }
+
                 Services.GameHostLauncher.Launch(corePath, game.RomPath, game.Console ?? "", game, statePath,
                     fullscreen: true,
                     onExit: _ => Dispatcher.UIThread.Post(() =>
                     {
-                        _aLatch = true;
-                        _bLatch = true;
-                        _rightLatch = true;
-                        _navDir = 0;
-                        _navHoldTicks = 0;
-                        _inputTimer?.Start();
-                        // macOS: the game-host ran in a separate process that was frontmost; when it exits,
-                        // the system doesn't reliably re-foreground us, so the couch shell appears to vanish
-                        // (app left in the Dock). Reactivate the app + raise this window so we land back here.
                         ReactivateAfterGame();
-                        // Refresh preview + saves (a new save may have been made in-game),
-                        // regardless of which zone we launched from.
-                        if (GameList.SelectedItem is Game refreshGame)
-                        {
-                            _videoDebounce.Stop();
-                            _videoDebounce.Start();
-                            LoadSavesFor(refreshGame);
-                        }
+                        resumeCouch();
                     }));
             }
             catch (Exception ex)
@@ -679,6 +678,49 @@ namespace Emutastic.Views
                 }
                 catch { }
             }
+        }
+
+        // macOS native single-window launch: composite the game's shared IOSurface INSIDE this window.
+        private GameSurfaceView? _embedView;
+        private Action<string, string>? _embedHandler;
+
+        private void LaunchEmbedded(string corePath, Game game, string? statePath, Action resumeCouch)
+        {
+            // A surface host over the carousel; it creates its NSView when added to the visual tree. By the
+            // time the game-host announces its ids (a moment later) the layer exists, so Bind() is safe.
+            _embedView = new GameSurfaceView { ZIndex = 1000 };
+            RootGrid.Children.Add(_embedView);   // root Grid is a single cell → fills the window
+
+            _embedHandler = (verb, arg) =>
+            {
+                if (verb != "iosurface" || _embedView == null) return;
+                try
+                {
+                    var p = arg.Split(' ');                 // "<w>x<h> <ctrl> <input> <id0>,<id1>,<id2>"
+                    var wh = p[0].Split('x');
+                    int w = int.Parse(wh[0]), h = int.Parse(wh[1]);
+                    uint ctrl = uint.Parse(p[1]), input = uint.Parse(p[2]);
+                    var idStrs = p[3].Split(',');
+                    var ids = new uint[idStrs.Length];
+                    for (int i = 0; i < idStrs.Length; i++) ids[i] = uint.Parse(idStrs[i]);
+                    _embedView.Bind(w, h, ctrl, input, ids);
+                }
+                catch (Exception ex) { System.Diagnostics.Trace.WriteLine($"[EmuTvMac] iosurface parse failed: {ex}"); }
+            };
+            Services.GameHostLauncher.OnHostCommand += _embedHandler;
+
+            Services.GameHostLauncher.Launch(corePath, game.RomPath, game.Console ?? "", game, statePath,
+                fullscreen: true, embedded: true,
+                onExit: _ => Dispatcher.UIThread.Post(() =>
+                {
+                    if (_embedHandler != null) { Services.GameHostLauncher.OnHostCommand -= _embedHandler; _embedHandler = null; }
+                    if (_embedView != null)
+                    {
+                        try { _embedView.Unbind(); RootGrid.Children.Remove(_embedView); } catch { }
+                        _embedView = null;
+                    }
+                    resumeCouch();   // back to the carousel — no ReactivateAfterGame (we never lost focus)
+                }));
         }
 
         // ── Input ────────────────────────────────────────────────────────────────
