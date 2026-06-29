@@ -163,6 +163,22 @@
           Condition="Exists('/opt/homebrew/opt/molten-vk/lib/libMoltenVK.dylib')" />
   </Target>
 
+  <!-- libemusurface.dylib (macOS only): cross-process IOSurface helper for the embedded game-render
+       path (the native single-window EmuTV design — the child renders headless into a shared GPU
+       IOSurface, the parent shows it in a CALayer in its own window). Pure system frameworks, built
+       from native/emusurface/. -->
+  <Target Name="BuildEmuSurface" BeforeTargets="Build"
+          Condition="$([MSBuild]::IsOSPlatform('OSX'))"
+          Inputs="$(MSBuildProjectDirectory)/../../native/emusurface/emusurface.c;$(MSBuildProjectDirectory)/../../native/emusurface/build.sh"
+          Outputs="$(MSBuildProjectDirectory)/../../native/emusurface/libemusurface.dylib">
+    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/../../native/emusurface/build.sh&quot;" />
+  </Target>
+  <Target Name="CopyEmuSurface" AfterTargets="BuildEmuSurface;Build"
+          Condition="$([MSBuild]::IsOSPlatform('OSX')) And Exists('$(MSBuildProjectDirectory)/../../native/emusurface/libemusurface.dylib')">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/../../native/emusurface/libemusurface.dylib"
+          DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
   <ItemGroup>
     <!-- macOS port: released Avalonia 12.0.4 from nuget.org (no vendored feed). The Linux port
          pinned a vendored 12.1.999 (PR #20926) only for X11 drag-and-drop; macOS gets native DnD

@@ -28,6 +28,14 @@ sealed class Program
             Emutastic.SelfTest.RunImport(args[1], args[2]);
             return;
         }
+        // Dev-only: IOSurface interop selftest — `Emutastic --selftest-iosurface`. Proves the managed
+        // libemusurface marshalling (create/lookup/lock + pattern round-trip) at runtime, headless.
+        // Underpins the native single-window embedded game-render path (Platform/IOSurfaceInterop.cs).
+        if (args.Length >= 1 && args[0] == "--selftest-iosurface")
+        {
+            Environment.Exit(Emutastic.Platform.IOSurfaceInterop.SelfTest());
+            return;
+        }
         // Separate game process (Branch B): runs the SDL-GL game window with NO Avalonia in this process
         // (Avalonia + SDL-GL in one process hangs after present #1). Exit code propagates to the parent
         // supervisor for crash detection. See docs/gl-present-phase1-host-process-design.md.
