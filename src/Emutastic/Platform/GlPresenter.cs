@@ -165,6 +165,7 @@ namespace Emutastic.Platform
 
             SDL_ShowWindow(_window);
             SDL_RaiseWindow(_window);   // take focus so KWin doesn't throttle us as an inactive surface
+            if (macBorderlessFs) MacSetFullscreenChrome(true);   // hide the Dock + menu bar over the borderless window
             _ctx = SDL_GL_CreateContext(_window);
             if (_ctx == IntPtr.Zero) throw new InvalidOperationException($"SDL_GL_CreateContext: {SdlError()}");
             SDL_GL_MakeCurrent(_window, _ctx);
@@ -634,8 +635,27 @@ namespace Emutastic.Platform
             if (w != IntPtr.Zero) { try { objc_msgSend_void_ptr(w, sel_registerName("toggleFullScreen:"), IntPtr.Zero); } catch { } }
         }
 
+        // macOS: our borderless-fullscreen game window doesn't auto-hide the Dock / menu bar the way SDL's
+        // real fullscreen did, so set NSApplication presentation options to hide them while the game runs.
+        // Restored on Dispose (and automatically when this game-host process exits). [NSApp must be active.]
+        private bool _macHidChrome;
+        private void MacSetFullscreenChrome(bool on)
+        {
+            if (!OperatingSystem.IsMacOS()) return;
+            try
+            {
+                IntPtr nsApp = objc_msgSend_ret(objc_getClass("NSApplication"), sel_registerName("sharedApplication"));
+                if (nsApp == IntPtr.Zero) return;
+                objc_msgSend_void_ulong(nsApp, sel_registerName("setPresentationOptions:"),
+                    on ? (NSAppPresentationHideDock | NSAppPresentationHideMenuBar) : 0UL);
+                _macHidChrome = on;
+            }
+            catch { }
+        }
+
         public void Dispose()
         {
+            if (_macHidChrome) MacSetFullscreenChrome(false);   // restore the Dock + menu bar before teardown
             if (_ctx != IntPtr.Zero)
             {
                 SDL_GL_MakeCurrent(_window, _ctx);

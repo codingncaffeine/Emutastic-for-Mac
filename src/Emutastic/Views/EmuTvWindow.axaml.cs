@@ -655,6 +655,10 @@ namespace Emutastic.Views
                         _navDir = 0;
                         _navHoldTicks = 0;
                         _inputTimer?.Start();
+                        // macOS: the game-host ran in a separate process that was frontmost; when it exits,
+                        // the system doesn't reliably re-foreground us, so the couch shell appears to vanish
+                        // (app left in the Dock). Reactivate the app + raise this window so we land back here.
+                        ReactivateAfterGame();
                         // Refresh preview + saves (a new save may have been made in-game),
                         // regardless of which zone we launched from.
                         if (GameList.SelectedItem is Game refreshGame)
@@ -1341,16 +1345,41 @@ namespace Emutastic.Views
             // AppKit ignores toggleFullScreen on an undecorated NSWindow — so WindowState=FullScreen falls
             // back to the default content size, centered. Cover the whole display manually instead. (Linux/
             // Wayland honors FullScreen on a borderless toplevel, so it's left to the XAML there.)
+            if (OperatingSystem.IsMacOS()) ApplyMacFullScreen();
+        }
+
+        // macOS: cover the whole display with the borderless window (see OnOpened for why FullScreen
+        // can't be used). Also re-asserted after a game exits, in case the window lost its coverage.
+        private void ApplyMacFullScreen()
+        {
+            var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary;
+            if (screen == null) return;
+            WindowState = WindowState.Normal;
+            Position = screen.Bounds.Position;            // physical top-left (covers the menu-bar row)
+            Width  = screen.Bounds.Width  / screen.Scaling;   // Bounds is physical px; W/H are DIPs
+            Height = screen.Bounds.Height / screen.Scaling;
+        }
+
+        // macOS: after the separate-process game-host exits, bring Emutastic + this window back to the
+        // front (the OS doesn't reliably re-foreground us) and re-assert full-screen coverage.
+        private void ReactivateAfterGame()
+        {
+            if (_closed) return;
+            try { Activate(); } catch { }
             if (OperatingSystem.IsMacOS())
             {
-                var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary;
-                if (screen != null)
+                try
                 {
-                    WindowState = WindowState.Normal;
-                    Position = screen.Bounds.Position;            // physical top-left (covers the menu-bar row)
-                    Width  = screen.Bounds.Width  / screen.Scaling;   // Bounds is physical px; W/H are DIPs
-                    Height = screen.Bounds.Height / screen.Scaling;
+                    // [[NSApplication sharedApplication] activateIgnoringOtherApps:YES]
+                    IntPtr nsApp = Platform.Gl.objc_msgSend_ret(
+                        Platform.Gl.objc_getClass("NSApplication"),
+                        Platform.Gl.sel_registerName("sharedApplication"));
+                    if (nsApp != IntPtr.Zero)
+                        Platform.Gl.objc_msgSend_void_bool(nsApp,
+                            Platform.Gl.sel_registerName("activateIgnoringOtherApps:"), true);
                 }
+                catch { }
+                try { ApplyMacFullScreen(); } catch { }
             }
         }
 
