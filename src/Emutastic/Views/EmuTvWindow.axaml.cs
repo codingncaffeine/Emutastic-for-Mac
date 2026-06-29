@@ -1334,6 +1334,26 @@ namespace Emutastic.Views
             }
         }
 
+        protected override void OnOpened(EventArgs e)
+        {
+            base.OnOpened(e);
+            // macOS: a borderless (WindowDecorations=None) window can't enter the native fullscreen Space —
+            // AppKit ignores toggleFullScreen on an undecorated NSWindow — so WindowState=FullScreen falls
+            // back to the default content size, centered. Cover the whole display manually instead. (Linux/
+            // Wayland honors FullScreen on a borderless toplevel, so it's left to the XAML there.)
+            if (OperatingSystem.IsMacOS())
+            {
+                var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary;
+                if (screen != null)
+                {
+                    WindowState = WindowState.Normal;
+                    Position = screen.Bounds.Position;            // physical top-left (covers the menu-bar row)
+                    Width  = screen.Bounds.Width  / screen.Scaling;   // Bounds is physical px; W/H are DIPs
+                    Height = screen.Bounds.Height / screen.Scaling;
+                }
+            }
+        }
+
         protected override void OnClosed(EventArgs e)
         {
             _closed = true;
