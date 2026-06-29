@@ -137,22 +137,31 @@ namespace Emutastic.Platform
             // the first click on the game window just activates it and you have to click the cog/menus a
             // second time. Let that focusing click through so a single click always registers.
             if (OperatingSystem.IsMacOS()) SDL_SetHint("SDL_MOUSE_FOCUS_CLICKTHROUGH", "1");
-            // macOS: SDL_SetWindowFullscreen defaults to a NATIVE fullscreen Space, which breaks the EmuTV
-            // couch flow — the game-host (child process) makes its own Space on top of EmuTvWindow's Space,
-            // and on quit macOS gets stuck mid-Space-slide ("slides right, won't close, inaccessible"). Force
-            // borderless-desktop fullscreen instead (covers the screen, no Space, tears down cleanly on exit).
-            // Must be set before window creation. The green-button native fullscreen still works via
-            // MacToggleFullscreen (handled separately in SetFullscreen).
-            if (OperatingSystem.IsMacOS()) SDL_SetHint("SDL_VIDEO_MAC_FULLSCREEN_SPACES", "0");
             SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
             SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY); // fixed-function quad
             SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
             SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
 
             ulong flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE;
+
+            // macOS fullscreen (EmuTV couch launches): do NOT use SDL_SetWindowFullscreen — on cocoa it makes
+            // a NATIVE fullscreen Space, and quitting the game slides that Space away to the desktop instead of
+            // landing back on the (borderless, non-Space) EmuTV shell. Cover the display with a BORDERLESS
+            // window on the same Space instead: no Space animation, and closing it just reveals EmuTV beneath.
+            // Linux/Wayland keeps the real SDL fullscreen (handled below) — this is macOS-only.
+            bool macBorderlessFs = OperatingSystem.IsMacOS() && fullscreen;
+            var dispBounds = new SDL_Rect();
+            if (macBorderlessFs)
+            {
+                flags |= SDL_WINDOW_BORDERLESS;
+                if (SDL_GetDisplayBounds(SDL_GetPrimaryDisplay(), out dispBounds) && dispBounds.w > 0 && dispBounds.h > 0)
+                { width = dispBounds.w; height = dispBounds.h; }   // size the window to the whole display
+            }
+
             _window = SDL_CreateWindow("Emutastic", Math.Max(1, width), Math.Max(1, height), flags);
             if (_window == IntPtr.Zero) throw new InvalidOperationException($"SDL_CreateWindow: {SdlError()}");
-            if (fullscreen) SDL_SetWindowFullscreen(_window, true);
+            if (macBorderlessFs) SDL_SetWindowPosition(_window, dispBounds.x, dispBounds.y);   // cover from the display origin
+            else if (fullscreen) SDL_SetWindowFullscreen(_window, true);                       // Linux/Wayland real fullscreen
 
             SDL_ShowWindow(_window);
             SDL_RaiseWindow(_window);   // take focus so KWin doesn't throttle us as an inactive surface

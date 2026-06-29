@@ -116,6 +116,12 @@ namespace Emutastic.Platform
         [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_GetWindowPosition(IntPtr window, out int x, out int y);
         [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_GetWindowSize(IntPtr window, out int w, out int h);
         [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_SetWindowFullscreen(IntPtr window, [MarshalAs(UnmanagedType.I1)] bool fullscreen);
+        public const ulong SDL_WINDOW_BORDERLESS = 0x0000000000000010UL;   // no title bar / window chrome
+        [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_SetWindowPosition(IntPtr window, int x, int y);
+        [DllImport(SDL)] public static extern uint SDL_GetPrimaryDisplay();
+        [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_GetDisplayBounds(uint displayID, out SDL_Rect rect);
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        public struct SDL_Rect { public int x, y, w, h; }
         [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_PollEvent(byte[] ev);   // SDL_Event union; we only drain
         [DllImport(SDL)] public static extern IntPtr SDL_GetError();
         [DllImport(SDL)] public static extern uint SDL_GetWindowID(IntPtr window);
