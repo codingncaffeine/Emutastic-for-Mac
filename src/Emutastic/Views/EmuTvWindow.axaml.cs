@@ -1348,7 +1348,17 @@ namespace Emutastic.Views
             // Fullscreen is set here per-platform rather than in XAML: on macOS WindowState=FullScreen
             // does nothing on a borderless window (and worse, it re-applies after a game and leaves the
             // window in a half-broken native fullscreen presentation — Dock/menu show, window non-key).
-            if (OperatingSystem.IsMacOS()) { ApplyMacFullScreen(); MacSetCouchChrome(true); LogMacWin("OnOpened"); }
+            if (OperatingSystem.IsMacOS())
+            {
+                // Order matters: hide the Dock/menu bar FIRST, THEN position. If we position while the menu
+                // bar is still visible, macOS clamps the window's top below it (y≈30); hiding the bar
+                // afterwards then leaves a wallpaper-coloured strip in that reclaimed space.
+                MacSetCouchChrome(true);
+                ApplyMacFullScreen();
+                LogMacWin("OnOpened");
+                // Re-assert next tick in case the menu-bar hide hadn't freed the top strip synchronously.
+                Dispatcher.UIThread.Post(() => { if (!_closed) { ApplyMacFullScreen(); LogMacWin("OnOpened:reassert"); } });
+            }
             else WindowState = WindowState.FullScreen;   // Linux/Wayland honors FullScreen on a borderless toplevel
         }
 
@@ -1430,8 +1440,9 @@ namespace Emutastic.Views
                         Platform.Gl.objc_msgSend_void_ptr(h.Handle, Platform.Gl.sel_registerName("makeKeyAndOrderFront:"), IntPtr.Zero);
                 }
                 catch { }
-                try { ApplyMacFullScreen(); } catch { }
-                MacSetCouchChrome(true);   // re-hide the Dock + menu bar (the handoff reset them)
+                MacSetCouchChrome(true);   // re-hide the Dock + menu bar FIRST (the handoff reset them)...
+                try { ApplyMacFullScreen(); } catch { }   // ...then re-cover, so the window isn't clamped below the menu bar
+                Dispatcher.UIThread.Post(() => { if (!_closed) { ApplyMacFullScreen(); LogMacWin("ReactivateAfterGame:reassert"); } });
                 LogMacWin("ReactivateAfterGame:after");
             }
         }
