@@ -1407,35 +1407,52 @@ namespace Emutastic.Views
         }
 
         // macOS: after the separate-process game-host exits, bring Emutastic + this window back to the
-        // front (the OS doesn't reliably re-foreground us) and re-assert full-screen coverage.
+        // front and re-hide the Dock/menu bar. The catch (from the diagnostic logs): post-game the window
+        // comes back NON-KEY, and macOS only honors hide-Dock/menu while the owning window is key — so the
+        // chrome shows even though presentation options are set. makeKeyAndOrderFront called immediately
+        // doesn't stick because focus is still returning from the dead child process. So retry on a short
+        // timer until the window is actually key, THEN hide the chrome + re-cover.
         private void ReactivateAfterGame()
         {
             if (_closed) return;
             try { Activate(); } catch { }
-            if (OperatingSystem.IsMacOS())
+            if (!OperatingSystem.IsMacOS()) return;
+
+            LogMacWin("ReactivateAfterGame:before");
+            int attempts = 0;
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+            timer.Tick += (_, _) =>
             {
-                LogMacWin("ReactivateAfterGame:before");
-                try
+                if (_closed) { timer.Stop(); return; }
+                bool key = MacActivateAndMakeKey();
+                if (key || ++attempts >= 12)   // settle once we're key, or give up after ~1.4s
                 {
-                    IntPtr nsApp = Platform.Gl.objc_msgSend_ret(
-                        Platform.Gl.objc_getClass("NSApplication"),
-                        Platform.Gl.sel_registerName("sharedApplication"));
-                    // [[NSApplication sharedApplication] activateIgnoringOtherApps:YES]
-                    if (nsApp != IntPtr.Zero)
-                        Platform.Gl.objc_msgSend_void_bool(nsApp, Platform.Gl.sel_registerName("activateIgnoringOtherApps:"), true);
-                    // Make THIS window key + front again (post-game it comes back non-key).
-                    var h = TryGetPlatformHandle();
-                    if (h != null && h.Handle != IntPtr.Zero)
-                        Platform.Gl.objc_msgSend_void_ptr(h.Handle, Platform.Gl.sel_registerName("makeKeyAndOrderFront:"), IntPtr.Zero);
+                    MacSetCouchChrome(true);            // honored now that the window is key
+                    try { ApplyMacFullScreen(); } catch { }
+                    LogMacWin($"ReactivateAfterGame:settled(key={key},attempts={attempts})");
+                    timer.Stop();
                 }
-                catch { }
-                // The game-host handoff drops the launch-time auto-hide of the Dock/menu bar, so re-hide
-                // them explicitly here (parent app is frontmost → presentation options apply). Hide BEFORE
-                // re-positioning so the window isn't clamped below the menu bar (which would leave a strip).
-                MacSetCouchChrome(true);
-                try { ApplyMacFullScreen(); } catch { }
-                LogMacWin("ReactivateAfterGame:after");
+            };
+            timer.Start();
+        }
+
+        // macOS: activate the app + make this window key/front; return whether it actually became key.
+        private bool MacActivateAndMakeKey()
+        {
+            try
+            {
+                IntPtr nsApp = Platform.Gl.objc_msgSend_ret(Platform.Gl.objc_getClass("NSApplication"), Platform.Gl.sel_registerName("sharedApplication"));
+                if (nsApp != IntPtr.Zero)
+                    Platform.Gl.objc_msgSend_void_bool(nsApp, Platform.Gl.sel_registerName("activateIgnoringOtherApps:"), true);
+                var h = TryGetPlatformHandle();
+                if (h != null && h.Handle != IntPtr.Zero)
+                {
+                    Platform.Gl.objc_msgSend_void_ptr(h.Handle, Platform.Gl.sel_registerName("makeKeyAndOrderFront:"), IntPtr.Zero);
+                    return Platform.Gl.objc_msgSend_ulong(h.Handle, Platform.Gl.sel_registerName("isKeyWindow")) != 0;
+                }
             }
+            catch { }
+            return false;
         }
 
         protected override void OnClosed(EventArgs e)
