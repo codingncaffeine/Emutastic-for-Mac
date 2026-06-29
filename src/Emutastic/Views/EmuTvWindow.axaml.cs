@@ -1348,26 +1348,10 @@ namespace Emutastic.Views
             // Fullscreen is set here per-platform rather than in XAML: on macOS WindowState=FullScreen
             // does nothing on a borderless window (and worse, it re-applies after a game and leaves the
             // window in a half-broken native fullscreen presentation — Dock/menu show, window non-key).
-            // Launch path is left exactly as the known-good baseline: XAML WindowState=FullScreen latches
-            // macOS's auto-hide of the Dock/menu bar, then ApplyMacFullScreen sizes the borderless window.
-            // (Chrome is hidden fine on launch — the only gap is AFTER a game, handled in ReactivateAfterGame.)
+            // Known-good baseline: XAML WindowState=FullScreen latches macOS's auto-hide of the Dock/menu
+            // bar, then ApplyMacFullScreen sizes the borderless window to cover the display. (Earlier
+            // attempts to drive the chrome explicitly destabilized the window — it would open then close.)
             if (OperatingSystem.IsMacOS()) { ApplyMacFullScreen(); LogMacWin("OnOpened"); }
-        }
-
-        // macOS: hide (on) / restore (off) the Dock + menu bar via the parent app's presentation options.
-        // The parent EmuTV app is a proper frontmost regular app, so these apply reliably here. Synchronous,
-        // no window-geometry side effects — safe to call in OnOpened/OnClosed without destabilizing display.
-        private void MacSetCouchChrome(bool on)
-        {
-            if (!OperatingSystem.IsMacOS()) return;
-            try
-            {
-                IntPtr nsApp = Platform.Gl.objc_msgSend_ret(Platform.Gl.objc_getClass("NSApplication"), Platform.Gl.sel_registerName("sharedApplication"));
-                if (nsApp == IntPtr.Zero) return;
-                ulong opts = on ? (Platform.Gl.NSAppPresentationHideDock | Platform.Gl.NSAppPresentationHideMenuBar) : 0UL;
-                Platform.Gl.objc_msgSend_void_ulong(nsApp, Platform.Gl.sel_registerName("setPresentationOptions:"), opts);
-            }
-            catch { }
         }
 
         // macOS: cover the whole display with the borderless window. Re-asserted after a game exits.
@@ -1407,58 +1391,36 @@ namespace Emutastic.Views
         }
 
         // macOS: after the separate-process game-host exits, bring Emutastic + this window back to the
-        // front and re-hide the Dock/menu bar. The catch (from the diagnostic logs): post-game the window
-        // comes back NON-KEY, and macOS only honors hide-Dock/menu while the owning window is key — so the
-        // chrome shows even though presentation options are set. makeKeyAndOrderFront called immediately
-        // doesn't stick because focus is still returning from the dead child process. So retry on a short
-        // timer until the window is actually key, THEN hide the chrome + re-cover.
+        // front (the OS doesn't reliably re-foreground us) and re-assert full-screen coverage.
         private void ReactivateAfterGame()
         {
             if (_closed) return;
             try { Activate(); } catch { }
-            if (!OperatingSystem.IsMacOS()) return;
-
-            LogMacWin("ReactivateAfterGame:before");
-            int attempts = 0;
-            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
-            timer.Tick += (_, _) =>
+            if (OperatingSystem.IsMacOS())
             {
-                if (_closed) { timer.Stop(); return; }
-                bool key = MacActivateAndMakeKey();
-                if (key || ++attempts >= 12)   // settle once we're key, or give up after ~1.4s
+                LogMacWin("ReactivateAfterGame:before");
+                try
                 {
-                    MacSetCouchChrome(true);            // honored now that the window is key
-                    try { ApplyMacFullScreen(); } catch { }
-                    LogMacWin($"ReactivateAfterGame:settled(key={key},attempts={attempts})");
-                    timer.Stop();
+                    IntPtr nsApp = Platform.Gl.objc_msgSend_ret(
+                        Platform.Gl.objc_getClass("NSApplication"),
+                        Platform.Gl.sel_registerName("sharedApplication"));
+                    // [[NSApplication sharedApplication] activateIgnoringOtherApps:YES]
+                    if (nsApp != IntPtr.Zero)
+                        Platform.Gl.objc_msgSend_void_bool(nsApp, Platform.Gl.sel_registerName("activateIgnoringOtherApps:"), true);
+                    // Make THIS window key + front again (post-game it comes back non-key).
+                    var h = TryGetPlatformHandle();
+                    if (h != null && h.Handle != IntPtr.Zero)
+                        Platform.Gl.objc_msgSend_void_ptr(h.Handle, Platform.Gl.sel_registerName("makeKeyAndOrderFront:"), IntPtr.Zero);
                 }
-            };
-            timer.Start();
-        }
-
-        // macOS: activate the app + make this window key/front; return whether it actually became key.
-        private bool MacActivateAndMakeKey()
-        {
-            try
-            {
-                IntPtr nsApp = Platform.Gl.objc_msgSend_ret(Platform.Gl.objc_getClass("NSApplication"), Platform.Gl.sel_registerName("sharedApplication"));
-                if (nsApp != IntPtr.Zero)
-                    Platform.Gl.objc_msgSend_void_bool(nsApp, Platform.Gl.sel_registerName("activateIgnoringOtherApps:"), true);
-                var h = TryGetPlatformHandle();
-                if (h != null && h.Handle != IntPtr.Zero)
-                {
-                    Platform.Gl.objc_msgSend_void_ptr(h.Handle, Platform.Gl.sel_registerName("makeKeyAndOrderFront:"), IntPtr.Zero);
-                    return Platform.Gl.objc_msgSend_ulong(h.Handle, Platform.Gl.sel_registerName("isKeyWindow")) != 0;
-                }
+                catch { }
+                try { ApplyMacFullScreen(); } catch { }
+                LogMacWin("ReactivateAfterGame:after");
             }
-            catch { }
-            return false;
         }
 
         protected override void OnClosed(EventArgs e)
         {
             _closed = true;
-            MacSetCouchChrome(false);   // restore the Dock + menu bar for the desktop library (no-op if never hidden)
             EmuTvThemeRenderer.OnAsyncImageReady = null;
             _imgReadyDebounce?.Stop();
             _inputTimer?.Stop();
