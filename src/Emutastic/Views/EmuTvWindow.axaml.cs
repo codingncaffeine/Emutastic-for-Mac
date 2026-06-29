@@ -1345,7 +1345,11 @@ namespace Emutastic.Views
             // AppKit ignores toggleFullScreen on an undecorated NSWindow — so WindowState=FullScreen falls
             // back to the default content size, centered. Cover the whole display manually instead. (Linux/
             // Wayland honors FullScreen on a borderless toplevel, so it's left to the XAML there.)
+            // Fullscreen is set here per-platform rather than in XAML: on macOS WindowState=FullScreen
+            // does nothing on a borderless window (and worse, it re-applies after a game and leaves the
+            // window in a half-broken native fullscreen presentation — Dock/menu show, window non-key).
             if (OperatingSystem.IsMacOS()) { ApplyMacFullScreen(); LogMacWin("OnOpened"); }
+            else WindowState = WindowState.FullScreen;   // Linux/Wayland honors FullScreen on a borderless toplevel
         }
 
         // macOS: cover the whole display with the borderless window (see OnOpened for why FullScreen
@@ -1393,18 +1397,27 @@ namespace Emutastic.Views
             try { Activate(); } catch { }
             if (OperatingSystem.IsMacOS())
             {
+                LogMacWin("ReactivateAfterGame:before");
                 try
                 {
-                    // [[NSApplication sharedApplication] activateIgnoringOtherApps:YES]
                     IntPtr nsApp = Platform.Gl.objc_msgSend_ret(
                         Platform.Gl.objc_getClass("NSApplication"),
                         Platform.Gl.sel_registerName("sharedApplication"));
                     if (nsApp != IntPtr.Zero)
-                        Platform.Gl.objc_msgSend_void_bool(nsApp,
-                            Platform.Gl.sel_registerName("activateIgnoringOtherApps:"), true);
+                    {
+                        // [[NSApplication sharedApplication] activateIgnoringOtherApps:YES]
+                        Platform.Gl.objc_msgSend_void_bool(nsApp, Platform.Gl.sel_registerName("activateIgnoringOtherApps:"), true);
+                        // Clear the leftover NSApplicationPresentationFullScreen (1024) state from the
+                        // handoff, back to the fresh-launch value (0) so chrome auto-hides over us again.
+                        Platform.Gl.objc_msgSend_void_ulong(nsApp, Platform.Gl.sel_registerName("setPresentationOptions:"), 0UL);
+                    }
+                    // Make THIS window key + front again (post-game it comes back non-key, which is why
+                    // macOS stopped auto-hiding the Dock/menu over the screen-covering borderless window).
+                    var h = TryGetPlatformHandle();
+                    if (h != null && h.Handle != IntPtr.Zero)
+                        Platform.Gl.objc_msgSend_void_ptr(h.Handle, Platform.Gl.sel_registerName("makeKeyAndOrderFront:"), IntPtr.Zero);
                 }
                 catch { }
-                LogMacWin("ReactivateAfterGame:before");
                 try { ApplyMacFullScreen(); } catch { }
                 LogMacWin("ReactivateAfterGame:after");
             }
