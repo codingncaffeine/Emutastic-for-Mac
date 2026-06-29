@@ -40,6 +40,41 @@ namespace Emutastic.Platform
         public string? LastError { get; private set; }
         public IntPtr Window => _window;
 
+        // ── Headless IOSurface mode (macOS embedded EmuTV) ──────────────────────────────────────────
+        // When EMUTASTIC_GL_IOSURFACE=1 (set by the game-host for an embedded couch launch), there is NO
+        // visible window: the same per-frame draw is rendered into a ring of IOSurface-backed FBOs, and
+        // the parent EmuTV process composites them in its own fullscreen window (Platform/IOSurfaceInterop).
+        // A GL_APPLE_fence per slot means the parent is told "ready" only once the GPU has finished the
+        // surface — no tearing, no half-frames. The ring (triple-buffered) lets the child render the next
+        // frame while the parent still displays the last, so the fence wait never serializes the pipeline.
+        private readonly bool _ioMode = OperatingSystem.IsMacOS()
+            && Environment.GetEnvironmentVariable("EMUTASTIC_GL_IOSURFACE") == "1";
+        const int IoRingCount = 3;
+        private readonly Platform.IOSurfaceInterop.IOSurface?[] _ioSurf = new Platform.IOSurfaceInterop.IOSurface?[IoRingCount];
+        private readonly uint[] _ioFbo = new uint[IoRingCount];
+        private readonly uint[] _ioTex = new uint[IoRingCount];
+        private readonly uint[] _ioFence = new uint[IoRingCount];
+        private readonly bool[] _ioPending = new bool[IoRingCount];   // GPU writes submitted, not yet announced
+        private int _ioIndex = -1, _ioW, _ioH;
+        private long _ioSeq;
+        // A tiny shared "mailbox" surface: the child writes the latest READY (slot|seq) as one aligned
+        // int64; the parent reads it each display tick to know which ring slot to composite. Avoids 60 fps
+        // of pipe traffic (which would jitter the present thread) — the parent just polls this one word.
+        private Platform.IOSurfaceInterop.IOSurface? _ioCtrl;
+        private IntPtr _ioCtrlBase;
+        private IntPtr _ioVsync;   // CVDisplayLink handle: paces the headless present to the display refresh
+        /// <summary>True when rendering headless into IOSurfaces instead of a visible window (macOS embedded).</summary>
+        public bool IoSurfaceMode => _ioMode;
+        /// <summary>The ring's global IOSurface ids — handed to the parent so it can look them up. Empty until ready.</summary>
+        public uint[] IoSurfaceIds { get; private set; } = Array.Empty<uint>();
+        /// <summary>Global id of the control/mailbox surface (latest ready slot|seq). 0 until the ring is built.</summary>
+        public uint IoControlId { get; private set; }
+        /// <summary>IOSurface size (the render target dims). Valid once the ring is built.</summary>
+        public void GetIoSize(out int w, out int h) { w = _ioW; h = _ioH; }
+        /// <summary>Raised on the present thread when a ring slot's GPU writes are COMPLETE and the parent may
+        /// composite it: (slotIndex, surfaceId, frameSeq). The game-host forwards this to the parent pipe.</summary>
+        public event Action<int, uint, long>? IoFrameReady;
+
         // SDL3 event ids (SDL_events.h). We service the GL window's own events on the emu thread inside
         // Present() — the window is FOCUSED (the whole point: an inactive surface gets throttled), so its
         // keyboard + close events are how the player drives the game now that it lives outside Avalonia.
@@ -149,9 +184,21 @@ namespace Emutastic.Platform
             // landing back on the (borderless, non-Space) EmuTV shell. Cover the display with a BORDERLESS
             // window on the same Space instead: no Space animation, and closing it just reveals EmuTV beneath.
             // Linux/Wayland keeps the real SDL fullscreen (handled below) — this is macOS-only.
-            bool macBorderlessFs = OperatingSystem.IsMacOS() && fullscreen;
+            bool macBorderlessFs = !_ioMode && OperatingSystem.IsMacOS() && fullscreen;
             var dispBounds = new SDL_Rect();
-            if (macBorderlessFs)
+            if (_ioMode)
+            {
+                // Headless embedded (EmuTV couch on macOS): a HIDDEN window satisfies cocoa's "GL context
+                // needs a window" rule while nothing is ever shown — the frame is rendered into IOSurfaces
+                // the parent composites in ITS window. Size the IOSurface ring to the whole display (what a
+                // borderless fullscreen window would have covered) so the aspect-fit frame is identical.
+                flags = SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN;
+                if (SDL_GetDisplayBounds(SDL_GetPrimaryDisplay(), out dispBounds) && dispBounds.w > 0 && dispBounds.h > 0)
+                { _ioW = dispBounds.w; _ioH = dispBounds.h; }
+                else { _ioW = Math.Max(1, width); _ioH = Math.Max(1, height); }
+                width = 16; height = 16;   // the hidden window's own size is irrelevant
+            }
+            else if (macBorderlessFs)
             {
                 flags |= SDL_WINDOW_BORDERLESS;
                 if (SDL_GetDisplayBounds(SDL_GetPrimaryDisplay(), out dispBounds) && dispBounds.w > 0 && dispBounds.h > 0)
@@ -160,12 +207,16 @@ namespace Emutastic.Platform
 
             _window = SDL_CreateWindow("Emutastic", Math.Max(1, width), Math.Max(1, height), flags);
             if (_window == IntPtr.Zero) throw new InvalidOperationException($"SDL_CreateWindow: {SdlError()}");
-            if (macBorderlessFs) SDL_SetWindowPosition(_window, dispBounds.x, dispBounds.y);   // cover from the display origin
-            else if (fullscreen) SDL_SetWindowFullscreen(_window, true);                       // Linux/Wayland real fullscreen
+            if (!_ioMode)
+            {
+                if (macBorderlessFs) SDL_SetWindowPosition(_window, dispBounds.x, dispBounds.y);   // cover from the display origin
+                else if (fullscreen) SDL_SetWindowFullscreen(_window, true);                       // Linux/Wayland real fullscreen
 
-            SDL_ShowWindow(_window);
-            SDL_RaiseWindow(_window);   // take focus so KWin doesn't throttle us as an inactive surface
-            if (macBorderlessFs) MacSetFullscreenChrome(true);   // hide the Dock + menu bar over the borderless window
+                SDL_ShowWindow(_window);
+                SDL_RaiseWindow(_window);   // take focus so KWin doesn't throttle us as an inactive surface
+                if (macBorderlessFs) MacSetFullscreenChrome(true);   // hide the Dock + menu bar over the borderless window
+            }
+            // _ioMode: never shown, never raised, no chrome change — there is no visible window.
             _ctx = SDL_GL_CreateContext(_window);
             if (_ctx == IntPtr.Zero) throw new InvalidOperationException($"SDL_GL_CreateContext: {SdlError()}");
             SDL_GL_MakeCurrent(_window, _ctx);
@@ -236,6 +287,54 @@ namespace Emutastic.Platform
 
             if (_shaderWanted) SetupShaderPath();
             System.Diagnostics.Trace.WriteLine($"[Gl] shader path: wanted={_shaderWanted} ready={_shaderReady}");
+
+            if (_ioMode) BuildIoRing();
+        }
+
+        // Build the IOSurface ring: one display-sized global BGRA surface per slot, each bound to a
+        // GL_TEXTURE_RECTANGLE FBO with its own APPLE fence. Throw on any failure — a black couch screen
+        // from a silent fallback would be worse than a loud launch error the host logs.
+        private void BuildIoRing()
+        {
+            var ids = new uint[IoRingCount];
+            for (int i = 0; i < IoRingCount; i++)
+            {
+                var s = Platform.IOSurfaceInterop.IOSurface.Create(_ioW, _ioH)
+                    ?? throw new InvalidOperationException($"IOSurface.Create({_ioW}x{_ioH}) slot {i} failed");
+                _ioSurf[i] = s;
+                int rc = Platform.IOSurfaceInterop.GlSurface.MakeFbo(s.Handle, _ioW, _ioH, out _ioTex[i], out _ioFbo[i]);
+                if (rc != 0) throw new InvalidOperationException($"emusurf_gl_make_fbo slot {i} rc={rc}");
+                _ioFence[i] = Platform.IOSurfaceInterop.GlSurface.GenFence();
+                ids[i] = s.Id;
+            }
+            IoSurfaceIds = ids;
+            // The control/mailbox surface (CPU-only; never a GL texture). Keep it locked-mapped: the base
+            // address is stable, and on Apple Silicon unified memory an aligned int64 store is coherent for
+            // the reader without a per-write lock. Seed it to "nothing ready" (slot=-1).
+            _ioCtrl = Platform.IOSurfaceInterop.IOSurface.Create(16, 16)
+                ?? throw new InvalidOperationException("IOSurface.Create(control) failed");
+            IoControlId = _ioCtrl.Id;
+            _ioCtrlBase = _ioCtrl.Lock(false);
+            unsafe { System.Threading.Volatile.Write(ref *(long*)_ioCtrlBase, PackMailbox(-1, 0)); }
+
+            // CVDisplayLink so the headless present blocks to the real display refresh (no SwapWindow here).
+            _ioVsync = Platform.IOSurfaceInterop.Vsync.Create();
+            if (_ioVsync == IntPtr.Zero) System.Diagnostics.Trace.WriteLine("[Gl] CVDisplayLink create FAILED — falling back to sleep pacing");
+
+            glEnable(GL_TEXTURE_2D);
+            glClearColor(0, 0, 0, 1);
+            Platform.IOSurfaceInterop.GlSurface.UnbindFbo();   // leave the default FB bound until the first Present
+            System.Diagnostics.Trace.WriteLine($"[Gl] IOSurface ring ready {_ioW}x{_ioH} ids=[{string.Join(",", ids)}] ctrl={IoControlId}");
+        }
+
+        // Pack the latest-ready (slot, seq) into one 64-bit word: slot in the low 32 bits, seq in the high.
+        // A naturally-aligned 64-bit store/load is atomic on arm64, so the parent never reads a torn pair.
+        private static long PackMailbox(int slot, long seq) => (uint)slot | (seq << 32);
+
+        private void PublishMailbox(int slot, long seq)
+        {
+            if (_ioCtrlBase == IntPtr.Zero) return;
+            unsafe { System.Threading.Volatile.Write(ref *(long*)_ioCtrlBase, PackMailbox(slot, seq)); }
         }
 
         // Compile a GLSL 1.20 program + a static quad VBO (NDC full-quad in the fit-rect viewport; UV with
@@ -371,8 +470,21 @@ namespace Emutastic.Platform
                 }
             }
 
-            SDL_GetWindowSizeInPixels(_window, out int winW, out int winH);
-            if (winW <= 0 || winH <= 0) { winW = frameW; winH = frameH; }
+            int winW, winH;
+            if (_ioMode)
+            {
+                // Advance to the next ring slot and target ITS FBO. If that slot still has un-announced GPU
+                // work (rare at steady state — it's 3 frames old), block until done before we overwrite it.
+                _ioIndex = (_ioIndex + 1) % IoRingCount;
+                if (_ioPending[_ioIndex]) { Platform.IOSurfaceInterop.GlSurface.FinishFence(_ioFence[_ioIndex]); _ioPending[_ioIndex] = false; }
+                Platform.IOSurfaceInterop.GlSurface.BindFbo(_ioFbo[_ioIndex]);
+                winW = _ioW; winH = _ioH;   // render at the IOSurface (display) resolution, aspect-fit as usual
+            }
+            else
+            {
+                SDL_GetWindowSizeInPixels(_window, out winW, out winH);
+                if (winW <= 0 || winH <= 0) { winW = frameW; winH = frameH; }
+            }
             // Game fit geometry — mirrors wl_present.c: fit in the content area (window minus the
             // chrome insets); when a bezel is up, its aspect-fit rect becomes the game's fit
             // CONTAINER so the game lands in the art's transparent cutout whatever the window
@@ -462,6 +574,31 @@ namespace Emutastic.Platform
                 DrawBlendedQuad(_osdTex);
             }
 
+            if (_ioMode)
+            {
+                // No window swap: place a fence after this frame's draws, mark the slot, and announce any
+                // slot whose GPU writes have now COMPLETED (≈1 frame later) so the parent only ever
+                // composites a finished surface. LastSwapMs=0 → the session paces via its stopwatch limiter.
+                Platform.IOSurfaceInterop.GlSurface.SetFence(_ioFence[_ioIndex]);   // glSetFenceAPPLE + glFlush
+                Platform.IOSurfaceInterop.GlSurface.UnbindFbo();
+                _ioPending[_ioIndex] = true;
+                long seq = ++_ioSeq;
+                for (int i = 0; i < IoRingCount; i++)
+                    if (_ioPending[i] && Platform.IOSurfaceInterop.GlSurface.TestFence(_ioFence[i]) != 0)
+                    {
+                        _ioPending[i] = false;
+                        PublishMailbox(i, seq);                 // tell the parent: composite slot i (latest wins)
+                        IoFrameReady?.Invoke(i, _ioSurf[i]!.Id, seq);
+                    }
+                // Block to the display refresh (vsync-locked pacing, like SwapWindow). LastSwapMs reflects
+                // the wait so the session sees us as paced and doesn't engage its stopwatch limiter.
+                long tv = System.Diagnostics.Stopwatch.GetTimestamp();
+                if (_ioVsync != IntPtr.Zero) Platform.IOSurfaceInterop.Vsync.Wait(_ioVsync, 100);
+                else System.Threading.Thread.Sleep(16);
+                LastSwapMs = (System.Diagnostics.Stopwatch.GetTimestamp() - tv) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                return true;
+            }
+
             long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             // Direct EGL present (Mesa FIFO, pipelined) when self-paced; else SDL's blocking swap.
             bool ok = (_eglDpy != IntPtr.Zero && _eglSurf != IntPtr.Zero)
@@ -485,6 +622,7 @@ namespace Emutastic.Platform
 
         public void GetSize(out int w, out int h)
         {
+            if (_ioMode) { w = _ioW; h = _ioH; return; }   // hidden window; the IOSurface is the render target
             w = h = 0;
             if (_window != IntPtr.Zero) SDL_GetWindowSizeInPixels(_window, out w, out h);
         }
@@ -661,7 +799,16 @@ namespace Emutastic.Platform
                 if (_osdTex != 0) { glDeleteTextures(1, ref _osdTex); _osdTex = 0; }
                 if (_bezTex != 0) { glDeleteTextures(1, ref _bezTex); _bezTex = 0; }
                 if (_govTex != 0) { glDeleteTextures(1, ref _govTex); _govTex = 0; }
+                if (_ioMode)
+                    for (int i = 0; i < IoRingCount; i++)
+                    {
+                        if (_ioFence[i] != 0) { Platform.IOSurfaceInterop.GlSurface.DeleteFence(_ioFence[i]); _ioFence[i] = 0; }
+                        if (_ioFbo[i] != 0 || _ioTex[i] != 0) { Platform.IOSurfaceInterop.GlSurface.DeleteFbo(_ioFbo[i], _ioTex[i]); _ioFbo[i] = _ioTex[i] = 0; }
+                        _ioSurf[i]?.Dispose(); _ioSurf[i] = null;
+                    }
+                if (_ioCtrl != null) { _ioCtrl.Unlock(false); _ioCtrl.Dispose(); _ioCtrl = null; _ioCtrlBase = IntPtr.Zero; }
             }
+            if (_ioVsync != IntPtr.Zero) { Platform.IOSurfaceInterop.Vsync.Destroy(_ioVsync); _ioVsync = IntPtr.Zero; }
             if (_ctx != IntPtr.Zero) { SDL_GL_DestroyContext(_ctx); _ctx = IntPtr.Zero; }
             if (_window != IntPtr.Zero) { SDL_DestroyWindow(_window); _window = IntPtr.Zero; }
             SDL_QuitSubSystem(SDL_INIT_VIDEO);

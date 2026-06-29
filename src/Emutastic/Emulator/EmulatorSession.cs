@@ -1169,6 +1169,14 @@ namespace Emutastic.Emulator
                 return;
             }
             _wlTop = gl;
+            // macOS embedded EmuTV: the game renders headless into shared IOSurfaces; hand the parent the
+            // ring + control ids ONCE so it can look them up and composite the latest in its own window.
+            if (gl.IoSurfaceMode)
+            {
+                gl.GetIoSize(out int iw, out int ih);
+                EmitHostCommand?.Invoke($"iosurface {iw}x{ih} {gl.IoControlId} {string.Join(",", gl.IoSurfaceIds)}");
+                Trace.WriteLine($"[Emu] EmuTV embedded: IOSurface ring {iw}x{ih} ctrl={gl.IoControlId} ids=[{string.Join(",", gl.IoSurfaceIds)}]");
+            }
             Trace.WriteLine("[Emu] GL present ACTIVE (DECOUPLED: present thread + audio-clock emu thread)");
             RunPresenterOsdLoop(ready, "DECOUPLED");
         }

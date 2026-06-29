@@ -7,8 +7,8 @@ cd "$(dirname "$0")"
 [ "$(uname)" = "Darwin" ] || { echo "[emusurface] not macOS — skipping"; exit 0; }
 CC=${CC:-clang}
 echo "[emusurface] compiling libemusurface.dylib with $CC"
-"$CC" -O2 -fPIC -Wall -Wno-deprecated-declarations \
+"$CC" -O2 -fPIC -Wall -Wno-deprecated-declarations -DGL_SILENCE_DEPRECATION \
       -dynamiclib -install_name "@rpath/libemusurface.dylib" \
       -o libemusurface.dylib emusurface.c \
-      -framework IOSurface -framework CoreFoundation
+      -framework IOSurface -framework CoreFoundation -framework OpenGL -framework CoreVideo
 echo "[emusurface] done -> $(pwd)/libemusurface.dylib"

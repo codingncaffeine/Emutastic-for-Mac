@@ -88,6 +88,36 @@ namespace Emutastic.Platform
         }
 
         /// <summary>
+        /// GL ↔ IOSurface binding (Phase 2) over libemusurface. The game-host renders the libretro frame
+        /// into an IOSurface-backed GL_TEXTURE_RECTANGLE FBO on its current CGL context; a GL_APPLE_fence
+        /// lets us tell the parent a surface is ready only once its GPU writes have completed. macOS only.
+        /// </summary>
+        public static class GlSurface
+        {
+            [DllImport(Lib, EntryPoint = "emusurf_gl_make_fbo")]
+            public static extern int MakeFbo(IntPtr surface, int w, int h, out uint tex, out uint fbo);
+            [DllImport(Lib, EntryPoint = "emusurf_gl_bind_fbo")]    public static extern void BindFbo(uint fbo);
+            [DllImport(Lib, EntryPoint = "emusurf_gl_unbind_fbo")]  public static extern void UnbindFbo();
+            [DllImport(Lib, EntryPoint = "emusurf_gl_delete_fbo")]  public static extern void DeleteFbo(uint fbo, uint tex);
+            [DllImport(Lib, EntryPoint = "emusurf_gl_gen_fence")]   public static extern uint GenFence();
+            [DllImport(Lib, EntryPoint = "emusurf_gl_set_fence")]   public static extern void SetFence(uint fence);
+            [DllImport(Lib, EntryPoint = "emusurf_gl_test_fence")]  public static extern int  TestFence(uint fence);
+            [DllImport(Lib, EntryPoint = "emusurf_gl_finish_fence")]public static extern void FinishFence(uint fence);
+            [DllImport(Lib, EntryPoint = "emusurf_gl_delete_fence")]public static extern void DeleteFence(uint fence);
+        }
+
+        /// <summary>
+        /// CVDisplayLink vsync (Phase 2): headless IOSurface mode has no window swap to block on, so the
+        /// present loop waits on this instead — vsync-locked pacing identical in effect to the window swap.
+        /// </summary>
+        public static class Vsync
+        {
+            [DllImport(Lib, EntryPoint = "emusurf_vsync_create")]  public static extern IntPtr Create();
+            [DllImport(Lib, EntryPoint = "emusurf_vsync_wait")]    public static extern int    Wait(IntPtr h, int timeoutMs);
+            [DllImport(Lib, EntryPoint = "emusurf_vsync_destroy")] public static extern void   Destroy(IntPtr h);
+        }
+
+        /// <summary>
         /// Headless runtime self-test of the C# &lt;-&gt; libemusurface marshalling chain (run via
         /// <c>Emutastic --selftest-iosurface</c>). Creates a surface, writes + reads a pattern through
         /// the locked base pointer, then re-looks-it-up by id and confirms the bytes survive. The
