@@ -688,6 +688,7 @@ namespace Emutastic.Views
         {
             // A surface host over the carousel; it creates its NSView when added to the visual tree. By the
             // time the game-host announces its ids (a moment later) the layer exists, so Bind() is safe.
+            LogMacWin("embed-launch:before");   // capture EmuTV's own window/Space state as the game starts
             _embedView = new GameSurfaceView { ZIndex = 1000 };
             RootGrid.Children.Add(_embedView);   // root Grid is a single cell → fills the window
 
@@ -720,6 +721,7 @@ namespace Emutastic.Views
                         _embedView = null;
                     }
                     resumeCouch();   // back to the carousel — no ReactivateAfterGame (we never lost focus)
+                    LogMacWin("embed-exit:after");   // capture EmuTV state on return (did anything slide a Space?)
                 }));
         }
 
