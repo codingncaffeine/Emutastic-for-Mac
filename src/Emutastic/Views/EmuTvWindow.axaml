@@ -205,7 +205,7 @@
                         <TextBlock x:Name="NoSavesLabel" Text="No save states yet"
                                    HorizontalAlignment="Left" VerticalAlignment="Center"
                                    FontSize="18" Opacity="0.6" Foreground="#FF8FE3FF"/>
-                        <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
+                        <ScrollViewer x:Name="SaveScroll" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
                                       HorizontalAlignment="Stretch" VerticalAlignment="Center" Height="160">
                             <ListBox x:Name="SaveList"
                                      Background="Transparent" BorderThickness="0"

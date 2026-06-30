@@ -255,12 +255,14 @@ namespace Emutastic.Views
                 }
                 catch { /* fall back to no header art */ }
             }
-            // Lift the save carousel out of the hidden legacy panel into the visible overlay so it
-            // shows over whatever the active theme is drawing.
-            if (SaveList.Parent is Panel home && !ReferenceEquals(home, SaveOverlayHost))
+            // Lift the save carousel (the ScrollViewer that WRAPS SaveList — SaveList.Parent is that
+            // ScrollViewer, not a Panel, so reparenting SaveList directly never fired) out of the hidden
+            // legacy panel into the visible overlay, so the thumbnails show BELOW the SAVE STATES header
+            // instead of in the game-list/TV column.
+            if (SaveScroll.Parent is Panel home && !ReferenceEquals(home, SaveOverlayHost))
             {
-                home.Children.Remove(SaveList);
-                SaveOverlayHost.Children.Add(SaveList);
+                home.Children.Remove(SaveScroll);
+                SaveOverlayHost.Children.Add(SaveScroll);
             }
             // Load THIS game's saves FRESH and synchronously every time the browser opens — never rely on a
             // prior async LoadSavesFor having finished (or having run since the last in-game save). The query
@@ -286,12 +288,14 @@ namespace Emutastic.Views
         {
             _mode = NavMode.GameList;
             SaveOverlay.IsVisible = false;
-            // Return the carousel to its home so it's ready to be reparented next time.
-            if (ReferenceEquals(SaveList.Parent, SaveOverlayHost))
+            // Return the carousel to its home so it's ready to be reparented next time, and EMPTY it — the
+            // save thumbnails must never render in the game-list/TV column, only inside the overlay.
+            if (ReferenceEquals(SaveScroll.Parent, SaveOverlayHost))
             {
-                SaveOverlayHost.Children.Remove(SaveList);
-                SaveListHome.Children.Add(SaveList);
+                SaveOverlayHost.Children.Remove(SaveScroll);
+                SaveListHome.Children.Add(SaveScroll);
             }
+            SaveList.ItemsSource = null;
             UpdateHint();
             _navDir = 0;
             _navHoldTicks = 0;
@@ -331,30 +335,8 @@ namespace Emutastic.Views
         }
 
         // ── Save states ──────────────────────────────────────────────────────────
-        // Load the selected game's saves OFF the UI thread, then bind if still current.
-        private void LoadSavesFor(Game g)
-        {
-            var db = _db;
-            Task.Run(() =>
-            {
-                List<SaveState> saves;
-                try { saves = db?.GetSaveStatesByGame(g.Id) ?? new List<SaveState>(); }
-                catch { saves = new List<SaveState>(); }
-
-                Dispatcher.UIThread.Post(() =>
-                {
-                    if (_closed || !ReferenceEquals(GameList.SelectedItem, g))
-                    {
-                        System.Diagnostics.Trace.WriteLine($"[EmuTvSaves] LoadSavesFor '{g.Title}' id={g.Id} -> {saves.Count} but bailed (selection changed/closed)");
-                        return;
-                    }
-                    SaveList.ItemsSource = saves;
-                    NoSavesLabel.IsVisible = saves.Count == 0;
-                    if (saves.Count > 0) SaveList.SelectedIndex = 0;
-                    System.Diagnostics.Trace.WriteLine($"[EmuTvSaves] LoadSavesFor '{g.Title}' id={g.Id} -> {saves.Count} states; first screenshot='{(saves.Count > 0 ? saves[0].ScreenshotPath : "")}'");
-                });
-            });
-        }
+        // Saves are loaded fresh + synchronously in EnterSaveStates (the overlay open), so they only ever
+        // render inside the overlay — never pre-loaded into the game-list/TV column.
 
         private void MoveSave(int delta)
         {
@@ -370,10 +352,11 @@ namespace Emutastic.Views
         {
             StopVideo();
             _videoDebounce.Stop();
-            if (_mode == NavMode.GameList && GameList.SelectedItem is Game g)
+            if (_mode == NavMode.GameList && GameList.SelectedItem is Game)
             {
                 _videoDebounce.Start();
-                LoadSavesFor(g);
+                // Save states are loaded fresh when the overlay opens (EnterSaveStates) — NOT here, so the
+                // thumbnails never render in the TV column.
             }
             RenderActiveView();
         }
@@ -661,8 +644,8 @@ namespace Emutastic.Views
                 {
                     _aLatch = true; _bLatch = true; _rightLatch = true; _navDir = 0; _navHoldTicks = 0;
                     _inputTimer?.Start();
-                    if (GameList.SelectedItem is Game refreshGame)
-                    { _videoDebounce.Stop(); _videoDebounce.Start(); LoadSavesFor(refreshGame); }
+                    if (GameList.SelectedItem is Game)
+                    { _videoDebounce.Stop(); _videoDebounce.Start(); }   // saves load fresh when the overlay opens
                 };
 
                 // macOS NATIVE single-window EmuTV: the game renders headless into a shared IOSurface that we
