@@ -194,6 +194,33 @@ directory, which on macOS is `~/Library/Application Support/Emutastic/Logs/`.)
 
 ---
 
+## 📺 EmuTV — Living-Room Mode
+
+<img src="src/Emutastic/Assets/banners%20and%20icons/emutv_logo.png" width="280" alt="EmuTV"/>
+
+A full controller-driven, big-screen couch interface — browse and launch your entire library from the
+sofa without touching a keyboard or mouse. EmuTV is a 1:1 port of the Windows/Linux living-room mode,
+rebuilt natively for macOS.
+
+- **Controller-first fullscreen UI** — a themed system carousel and game lists you drive entirely from
+  the gamepad.
+- **ES-DE theme engine** — renders EmulationStation Desktop Edition themes, with a built-in default plus
+  in-app theme browsing, downloading, and importing.
+- **Seamless in-window game launches (macOS-native)** — games render *inside* the EmuTV window through a
+  shared-surface compositor, so there's no second window, no focus handoff, and no Dock/menu-bar flash:
+  it stays fullscreen from launch to quit and drops you straight back to the couch shell.
+- **SteamGridDB artwork** — optional cover-art fetching to round out box art (add your API token in
+  Preferences).
+- **Animated TV preview** and polished presentation throughout.
+
+**Getting in:** hold **L2 + R2 + L3 + R3** (both triggers + both sticks clicked) for ~2 seconds from the
+library, or press **F9**. Quit a game back to the couch with the same chord.
+
+**In-game controller combos:** save state **L3 + R2** · load latest state **R3 + L2** · swap disc
+**L3 + Start** — all rebindable per system under **Preferences → Controls**.
+
+---
+
 ## Cloud Sync
 
 Sign in with your GitHub account (**Preferences → Backups** — device flow, no password stored) and
