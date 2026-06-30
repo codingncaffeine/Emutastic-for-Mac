@@ -4,25 +4,50 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-A native **macOS** port of [Emutastic](https://github.com/codingncaffeine/Emutastic) — a multi-system
-emulator frontend inspired by [OpenEmu](https://openemu.org/), built on **.NET 10 + Avalonia** (the
-original is Windows/WPF/.NET 8). Games are organized by console in a clean library interface. Emulation
-is handled by [libretro](https://www.libretro.com/) cores loaded at runtime — no cores are bundled.
+A native **macOS** emulator frontend for Apple Silicon that brings features rarely found together on the
+Mac: **RetroAchievements with hardcore-mode compliance, GitHub cloud sync of your saves and library,
+launch-time ROM-hack patching, in-app game manuals, gameplay recording, and a deep visual theme editor**.
+Your collection is organized by console in a clean library; emulation is handled by
+[libretro](https://www.libretro.com/) cores loaded at runtime — no cores are bundled.
 
-The goal is a **1:1 clone**: aesthetically and functionally identical to the Windows and Linux apps, with
-only the platform plumbing swapped underneath — WPF → **Avalonia (Avalonia.Native)**, Direct3D/Vulkan →
-**Metal/OpenGL**, WASAPI → **SDL3 / CoreAudio**, XInput → **SDL3 / GameController**, Win32 core loading →
-**`dlopen`**.
+It's the same app as the [Windows](https://github.com/codingncaffeine/Emutastic) and
+[Linux](https://github.com/codingncaffeine/Emutastic-For-Linux) builds, with the platform layer rebuilt
+for the Mac: **.NET 10 + Avalonia (Avalonia.Native)**, a native **Metal/OpenGL** presenter, **SDL3 /
+CoreAudio** audio, **SDL3 / GameController** input, **VideoToolbox** hardware recording, and `dlopen`
+core loading.
 
 > **🚧 Status — early port, in active development.** The native library/UI runs on Apple Silicon today
 > (window, theming, every Preferences tab, library navigation). Still being brought up: the game-host
 > present path (so games actually render), SDL3 audio + controllers, video recording, snap-video
 > previews, libretro core download wiring (`apple/osx/arm64`), and `.app` packaging + signing. The
-> feature list below describes the **target** — parity with the Windows and Linux builds.
+> highlights and feature list below describe the **target** — parity with the Windows and Linux builds.
 
 > **Legal notice:** This project is a frontend only. It does not include, distribute, or facilitate the
 > acquisition of any copyrighted software, ROM images, BIOS files, or other proprietary system files.
 > You are solely responsible for ensuring you have the legal right to use any software you load.
+
+## Highlights
+
+- 🏆 **RetroAchievements** — full hardcore-mode compliance, in-game unlock toasts, a trophy case with
+  activity heatmap, and friend unlock feeds. Native achievement support is rare on the Mac.
+- ☁️ **GitHub cloud sync** — battery saves and your whole library database follow you across Mac,
+  Windows, and Linux, with optional AES-256-GCM encryption, all in a private repo you control.
+- 🔧 **Launch-time ROM patching** — apply IPS / BPS / UPS hacks and translations at launch; the patched
+  game becomes its own library entry, your original ROM left untouched.
+- 🎨 **Deep theming** — Dark / Light / OLED / Midnight built-ins plus a visual editor with live color
+  tokens, custom backgrounds, and `.emutheme` export/import.
+- 📖 **In-app game manuals** · 🎥 **gameplay recording** (native VideoToolbox H.264 / HEVC / ProRes) ·
+  📝 **per-game notes**
+- 🎛️ **Full SDL3 controller support** — real controller names, analog-stick-as-D-pad, gamepad save
+  states, disc swapping, and per-system cheats.
+- 🗂️ **Clean, console-organized library** with automatic box art and metadata (OpenVGDB + libretro
+  thumbnails, optional ScreenScraper) — no account required to start.
+- 🍎 **Native Mac fit** — Apple Silicon build, real macOS window controls, and a fully self-contained
+  `.app` (no Homebrew, no .NET install, nothing to set up).
+
+**Compared to the Windows build,** the Mac port leaves out just two things: **EmuTV** (the controller-only
+couch mode) and the high-end **PlayStation 2 / PlayStation 3** cores, which have no Apple Silicon libretro
+build. Everything else is the same app.
 
 ---
 
@@ -177,58 +202,158 @@ handled by the .NET BCL; `.7z`/`.rar`/`.tar`/`.gz` via SharpCompress (no native 
 
 ## Features
 
-Themes (Dark / Light / OLED / Midnight + a visual editor) · automatic artwork & metadata (OpenVGDB +
-libretro thumbnails, optional ScreenScraper) · **SDL3** controller support with analog-stick-as-D-pad ·
-**RetroAchievements** (unlock toasts with a full appearance editor, hardcore mode, Achievements tab
-with trophy case + activity heatmap, friends with unlock feeds + leaderboard toasts, CHD support) ·
-screenshots & **gameplay recording** (x264) · **GitHub cloud sync** (below) · disc swapping ·
-per-game notes · game manuals (auto-download) · cheats (+ cheat database import) · core options ·
-save states with screenshots · play-time tracking · **ROM hacks** (IPS/BPS/UPS soft-patching —
-original ROM untouched) · **video shaders** · **bezels & Vectrex overlays** · **turbo buttons** ·
-**native window controls** (Preferences → Theme — real macOS minimize / maximize / close, or the custom
-frameless look).
+<details>
+<summary><strong>Click to expand the full feature list</strong></summary>
 
-(See the upstream [Emutastic wiki](https://github.com/codingncaffeine/Emutastic/wiki) for per-feature
-detail — behavior is intended to match. Diagnostic logs live in the `Logs/` folder of the data
-directory, which on macOS is `~/Library/Application Support/Emutastic/Logs/`.)
+<br>
 
----
+<details>
+<summary><strong>Themes</strong></summary>
 
-## 📺 EmuTV — Living-Room Mode
+Four built-in themes — **Dark** (default), **Light**, **OLED Black**, **Midnight Blue** — plus a full
+visual editor with live color tokens and preview. Set custom background images with zoom, pan, and tile
+controls. Export/import themes as `.emutheme` files to share or to pull in ones the community has made.
 
-<img src="src/Emutastic/Assets/banners%20and%20icons/emutv_logo.png" width="280" alt="EmuTV"/>
+</details>
 
-A full controller-driven, big-screen couch interface — browse and launch your entire library from the
-sofa without touching a keyboard or mouse. EmuTV is a 1:1 port of the Windows/Linux living-room mode,
-rebuilt natively for macOS.
+<details>
+<summary><strong>Artwork & Metadata</strong></summary>
 
-- **Controller-first fullscreen UI** — a themed system carousel and game lists you drive entirely from
-  the gamepad.
-- **ES-DE theme engine** — renders EmulationStation Desktop Edition themes, with a built-in default plus
-  in-app theme browsing, downloading, and importing.
-- **Seamless in-window game launches (macOS-native)** — games render *inside* the EmuTV window through a
-  shared-surface compositor, so there's no second window, no focus handoff, and no Dock/menu-bar flash:
-  it stays fullscreen from launch to quit and drops you straight back to the couch shell.
-- **SteamGridDB artwork** — optional cover-art fetching to round out box art (add your API token in
-  Preferences).
-- **Animated TV preview** and polished presentation throughout.
+Box art, titles, developers, genres, and descriptions are filled in automatically — **no account
+required**. By default Emutastic matches your games against **OpenVGDB** (a built-in local database) and
+pulls box art from the **libretro thumbnail server**. Sign in to **ScreenScraper** (Preferences → Snaps)
+to promote it to the primary source — community-edited, region-aware metadata with fuller coverage, plus
+3D box art and downloadable game manuals. OpenVGDB stays on as the backup that fills anything
+ScreenScraper misses.
 
-**Getting in:** hold **L2 + R2 + L3 + R3** (both triggers + both sticks clicked) for ~2 seconds from the
-library, or press **F9**. Quit a game back to the couch with the same chord.
+</details>
 
-**In-game controller combos:** save state **L3 + R2** · load latest state **R3 + L2** · swap disc
-**L3 + Start** — all rebindable per system under **Preferences → Controls**.
+<details>
+<summary><strong>Controllers</strong></summary>
 
----
+Controllers are detected through **SDL3** and identified by product name (CoreAudio / GameController on
+macOS) — Xbox, DualSense/DualShock, and hundreds of others — instead of generic "Controller 1, 2, 3."
+Button mappings are configurable per controller in **Preferences → Input**.
 
-## Cloud Sync
+**Left analog stick works as movement input** on every old console with a digital joystick or D-pad —
+push the stick on the NES, SNES, Genesis, Game Boy line, Saturn, Neo Geo, Atari, ColecoVision,
+TurboGrafx, arcade games, and more, and your character moves. Diagonals are honored. The D-pad still
+works exactly as before — use whichever you prefer.
 
-Sign in with your GitHub account (**Preferences → Backups** — device flow, no password stored) and
-your battery saves + game library sync through a private repository on your account.
+**Save and load states from the gamepad** — a button chord saves or loads your latest state in any game
+with no overlay needed, configurable per console in **Preferences → Controls**.
 
-The same repository serves the Windows, Linux, and macOS apps: save on one machine, pick up on another
-(battery saves are keyed by ROM hash, so each install must import the same ROM files). Optional
-AES-256-GCM encryption with a passphrase you choose. Sync activity is logged to `Logs/cloudsync.log`.
+</details>
+
+<details>
+<summary><strong>RetroAchievements</strong></summary>
+
+Earn achievements while playing via [RetroAchievements](https://retroachievements.org/). Sign in with
+your RA account in **Preferences → Achievements**; unlocks appear in-game as toast notifications with a
+full appearance editor. The **Achievements tab** gives you a trophy case, an activity heatmap, and
+friends with unlock feeds and leaderboard toasts. CHD-based titles are supported.
+
+**Hardcore mode** enforces every RetroAchievements hardcore rule (save-state loading blocked, cheats
+blocked, no rewind/slow-motion/frame-advance, persistent on-screen indicator). See the
+[Hardcore Compliance](https://github.com/codingncaffeine/Emutastic/wiki/Hardcore-Compliance) wiki page
+for the line-by-line audit.
+
+</details>
+
+<details>
+<summary><strong>Cloud Sync</strong></summary>
+
+Sync battery saves and your library database across machines using your GitHub account — sign in with
+one click in **Preferences → Backups** (device flow, no password stored) and a private repo is created
+under your account. The same repository serves the Windows, Linux, and macOS apps: save on one machine,
+pick up on another (battery saves are keyed by ROM hash, so each install must import the same ROM
+files). Optional **AES-256-GCM encryption** with a passphrase you choose. See the
+[Cloud Sync](https://github.com/codingncaffeine/Emutastic/wiki/Cloud-Sync) wiki page for details.
+
+</details>
+
+<details>
+<summary><strong>Recording & Screenshots</strong></summary>
+
+Capture screenshots and record gameplay clips with a hotkey. On macOS, recording encodes natively
+through Apple's **VideoToolbox** (hardware H.264 / HEVC / ProRes) — no ffmpeg download required. Files
+land in a per-game folder so screenshots, recordings, and saves stay organized in one place.
+
+</details>
+
+<details>
+<summary><strong>Disc Swapping (FDS, PS1, Saturn, Sega CD)</strong></summary>
+
+A button chord flips between discs/sides in-game on systems that need it, rebindable in
+**Preferences → Controls → Disk Swap**. Multi-disc games are auto-bundled at import time — see the
+[ROM Import](#rom-import) section.
+
+</details>
+
+<details>
+<summary><strong>Game Notes</strong></summary>
+
+Keep free-form notes on any game — passwords, where you left off, strategies — in a floating editor with
+line numbers, find, and word-wrap/monospace toggles. Notes autosave as you type and ride your Cloud Sync
+backup across machines. The window can be pinned on top and rolled up to its title bar — handy beside a
+running game on a single display.
+
+</details>
+
+<details>
+<summary><strong>Game Manuals</strong></summary>
+
+Download a game's original PDF manual and read it in a built-in viewer — zoom, search, page thumbnails —
+that reopens on your last-read page. Manuals are sourced from ScreenScraper (requires a ScreenScraper
+login); coverage is best for popular console titles.
+
+</details>
+
+<details>
+<summary><strong>Cheats</strong></summary>
+
+Per-game cheats from the in-game menu or the library detail card. Game Genie / GameShark / raw codes
+depending on system, with cheat-database import. See
+**[Cheats](https://github.com/codingncaffeine/Emutastic/wiki/Cheats)** in the wiki for code formats per
+system and the cores where cheats aren't supported.
+
+</details>
+
+<details>
+<summary><strong>ROM Hacks</strong></summary>
+
+Apply an IPS, BPS, or UPS patch to a base game right from the library. The patched game becomes its own
+library entry — with its own saves — while your original ROM is left untouched, so there's no second
+copy on disk. The patch is applied in memory at launch, and BPS/UPS patches are checksum-verified
+against your ROM, so a mismatched or wrong-region copy is caught before it loads. Available on cartridge
+systems (SNES, GBA, Game Boy / Game Boy Color, NES, Genesis, Nintendo 64, and more). See
+**[ROM Hacks](https://github.com/codingncaffeine/Emutastic/wiki/ROM-Hacks)** in the wiki.
+
+</details>
+
+<details>
+<summary><strong>Shaders, Bezels & Overlays</strong></summary>
+
+Video shaders (CRT scanlines, LCD grids, and more) render through the slang-shader pipeline, saved per
+game. Arcade and Neo Geo **bezels** and **Vectrex overlays** are downloadable extras that frame the
+picture. **Turbo buttons** and **native macOS window controls** (Preferences → Theme — real minimize /
+maximize / close, or the custom frameless look) round it out.
+
+</details>
+
+<details>
+<summary><strong>Also included</strong></summary>
+
+Core options · save states with screenshots · play-time tracking · one-click core downloads · BIOS
+guidance. Diagnostic logs live in the `Logs/` folder of the data directory
+(`~/Library/Application Support/Emutastic/Logs/`).
+
+</details>
+
+</details>
+
+See the upstream [Emutastic wiki](https://github.com/codingncaffeine/Emutastic/wiki) for per-feature
+detail — behavior is intended to match the Windows and Linux builds.
 
 ---
 
@@ -309,7 +434,7 @@ list. Please support those projects directly.
 
 Controller illustrations from [OpenEmuControllerArt](https://github.com/kodi-game/OpenEmuControllerArt)
 (BSD 3-Clause; not affiliated with OpenEmu). Bezels from [The Bezel Project](https://github.com/thebezelproject).
-Inspired by [OpenEmu](https://openemu.org/) for macOS. Full license texts in `NOTICES.txt`.
+Full license texts in `NOTICES.txt`.
 
 This is a community macOS port of [Emutastic](https://github.com/codingncaffeine/Emutastic) by the same
 author, built from the [Linux port](https://github.com/codingncaffeine/Emutastic-For-Linux).
