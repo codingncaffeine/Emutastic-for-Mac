@@ -732,6 +732,7 @@ namespace Emutastic.Emulator
                 if (!_noInputPoll) _input.Poll();
                 ServiceDiskSwap();   // disc-swap chord (L3+Start) + FDS/deferred-insert ticks
                 ServiceQuitChord();  // EmuTV quit chord (L3+R3+L2+R2 held ~1.5s) → quit the game
+                ServiceStateChords();// EmuTV save (L3+R2) / load-latest (L3+L2) state chords
                 if (_saveStatePending) ExecuteSaveOnEmuThread();   // between retro_run calls, like upstream
                 if (_loadStatePending) ExecuteLoadOnEmuThread();
                 if (_cheatsApplyPending) ExecuteCheatsApplyOnEmuThread();
@@ -1005,6 +1006,7 @@ namespace Emutastic.Emulator
                 if (!_noInputPoll && !OperatingSystem.IsMacOS()) _input.Poll();
                 ServiceDiskSwap();   // disc-swap chord (L3+Start) + FDS/deferred-insert ticks
                 ServiceQuitChord();  // EmuTV quit chord (L3+R3+L2+R2 held ~1.5s) → quit the game
+                ServiceStateChords();// EmuTV save (L3+R2) / load-latest (L3+L2) state chords
                 if (_saveStatePending) ExecuteSaveOnEmuThread();   // between retro_run calls, like upstream
                 if (_loadStatePending) ExecuteLoadOnEmuThread();
                 if (_cheatsApplyPending) ExecuteCheatsApplyOnEmuThread();
@@ -2835,6 +2837,31 @@ namespace Emutastic.Emulator
                 }
             }
             else _quitChordFrames = 0;
+        }
+
+        // ── EmuTV save / load-latest state chords ─────────────────────────────────────────────────────
+        // Documented in Preferences → EmuTV ("Controller combos"): Save = hold L3 then R2; Load latest =
+        // hold L3 then L2. Raw ids are SdlInput's panel space (7=L3, 8=R3, 100=L2, 101=R2) — the same space
+        // ServiceQuitChord reads, so these fire from FORWARDED input in embedded EmuTV exactly like quit.
+        // Rising-edge (held combo fires once). Each requires its trigger WITHOUT the other trigger and
+        // without R3, so the full L3+R3+L2+R2 quit chord never also saves or loads.
+        private bool _saveChordPrev, _loadChordPrev;
+        private void ServiceStateChords()
+        {
+            bool l3 = _input.IsRawControlDown(7, 0), r3 = _input.IsRawControlDown(8, 0);
+            bool l2 = _input.IsRawControlDown(100, 0), r2 = _input.IsRawControlDown(101, 0);
+            bool save = l3 && r2 && !l2 && !r3;   // L3 + R2 alone
+            bool load = l3 && l2 && !r2 && !r3;   // L3 + L2 alone
+            if (save && !_saveChordPrev)
+                RequestSaveState(DateTime.Now.ToString("yyyy-MM-dd HH.mm.ss"));   // timestamped, like the OSD Save button
+            if (load && !_loadChordPrev)
+            {
+                var recent = RecentSaveStates();   // newest first
+                if (recent.Count > 0) RequestLoadState(recent[0].Path, recent[0].Name);
+                else ShowDiskMessage("No save state to load", 3);
+            }
+            _saveChordPrev = save;
+            _loadChordPrev = load;
         }
 
         // Called once per emu frame (after input poll). Detects the disc-swap chord (rising edge) and
