@@ -2795,6 +2795,23 @@ namespace Emutastic.Emulator
                 }
             if (_diskSwapCtrlA >= 0 || _diskSwapKeySCa >= 0)
                 Trace.WriteLine($"[Emu] disk swap chord: ctrl {_diskSwapCtrlA}+{_diskSwapCtrlB}, key sc {_diskSwapKeySCa}+{_diskSwapKeySCb}");
+
+            // EmuTV save / load-state chords (FRONTEND rows). Unbound (-1) → documented defaults L3+R2 / L3+L2.
+            _saveStateCtrlA = _saveStateCtrlB = _loadStateCtrlA = _loadStateCtrlB = -1;
+            foreach (var m in p1.ControllerMappings)
+            {
+                bool isSave = string.Equals(m.ButtonName, "Save State", StringComparison.OrdinalIgnoreCase);
+                bool isLoad = string.Equals(m.ButtonName, "Load State", StringComparison.OrdinalIgnoreCase);
+                if (!isSave && !isLoad) continue;
+                var parts = (m.InputIdentifier ?? "").Split('+', 2);
+                if (parts.Length == 2 && int.TryParse(parts[0].Trim(), out int a) && int.TryParse(parts[1].Trim(), out int b))
+                {
+                    if (isSave) { _saveStateCtrlA = a; _saveStateCtrlB = b; }
+                    else        { _loadStateCtrlA = a; _loadStateCtrlB = b; }
+                }
+            }
+            if (_saveStateCtrlA >= 0 || _loadStateCtrlA >= 0)
+                Trace.WriteLine($"[Emu] state chords: save {_saveStateCtrlA}+{_saveStateCtrlB}, load {_loadStateCtrlA}+{_loadStateCtrlB}");
         }
 
         // Avalonia Key enum name → SDL scancode for the chord-capturable set. -1 = unmappable
@@ -2846,12 +2863,23 @@ namespace Emutastic.Emulator
         // Rising-edge (held combo fires once). Each requires its trigger WITHOUT the other trigger and
         // without R3, so the full L3+R3+L2+R2 quit chord never also saves or loads.
         private bool _saveChordPrev, _loadChordPrev;
+        // Per-system rebinds (Controls → FRONTEND "Save State" / "Load State"), raw "A+B" panel ids.
+        // -1 = unbound → the documented defaults (L3+R2 save, L3+L2 load) apply. Loaded by LoadDiskSwapChord.
+        private int _saveStateCtrlA = -1, _saveStateCtrlB = -1, _loadStateCtrlA = -1, _loadStateCtrlB = -1;
         private void ServiceStateChords()
         {
             bool l3 = _input.IsRawControlDown(7, 0), r3 = _input.IsRawControlDown(8, 0);
             bool l2 = _input.IsRawControlDown(100, 0), r2 = _input.IsRawControlDown(101, 0);
-            bool save = l3 && r2 && !l2 && !r3;   // L3 + R2 alone
-            bool load = l3 && l2 && !r2 && !r3;   // L3 + L2 alone
+            // Configured chord wins; otherwise the documented default (L3+R2 / L3+L2), which also excludes
+            // the other trigger + R3 so it's precise. Either way, never co-fire with the full quit chord.
+            bool save = _saveStateCtrlA >= 0
+                ? _input.IsRawControlDown(_saveStateCtrlA, 0) && _input.IsRawControlDown(_saveStateCtrlB, 0)
+                : l3 && r2 && !l2 && !r3;
+            bool load = _loadStateCtrlA >= 0
+                ? _input.IsRawControlDown(_loadStateCtrlA, 0) && _input.IsRawControlDown(_loadStateCtrlB, 0)
+                : l3 && l2 && !r2 && !r3;
+            if (l3 && r3 && l2 && r2) { save = false; load = false; }   // quit chord held — suppress both
+
             if (save && !_saveChordPrev)
                 RequestSaveState(DateTime.Now.ToString("yyyy-MM-dd HH.mm.ss"));   // timestamped, like the OSD Save button
             if (load && !_loadChordPrev)

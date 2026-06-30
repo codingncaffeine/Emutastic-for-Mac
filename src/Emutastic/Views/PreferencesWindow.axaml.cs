@@ -2646,14 +2646,17 @@ public partial class PreferencesWindow : Window
             foreach (var btn in group) panel.Children.Add(BuildMappingRow(btn.Name));
         }
 
-        // Frontend-only Disk Swap action (upstream parity) — for consoles whose cores expose the
-        // libretro disk control interface. Captured as a chord; unbound default is L3 + Start.
-        if (Emulator.EmulatorSession.ConsoleSupportsDiskSwap(_currentConsole))
+        // Frontend-only actions (upstream parity), all captured as CHORDS. Save/Load State apply to every
+        // system (unbound defaults L3+R2 / L3+L2); Disk Swap only for cores exposing the disk-control
+        // interface (unbound default L3 + Start).
         {
             panel.Children.Add(new TextBlock { Text = "FRONTEND", FontSize = 10, FontWeight = FontWeight.SemiBold,
                 FontFamily = Font("PrimaryFont"), Foreground = Brush("TextMutedBrush"), Margin = new Thickness(0, 12, 0, 4) });
             panel.Children.Add(new Avalonia.Controls.Shapes.Rectangle { Height = 1, Fill = Brush("BorderNormalBrush"), Margin = new Thickness(0, 0, 0, 6) });
-            panel.Children.Add(BuildMappingRow("Disk Swap"));
+            panel.Children.Add(BuildMappingRow("Save State"));
+            panel.Children.Add(BuildMappingRow("Load State"));
+            if (Emulator.EmulatorSession.ConsoleSupportsDiskSwap(_currentConsole))
+                panel.Children.Add(BuildMappingRow("Disk Swap"));
         }
         RefreshAllRows();
     }
@@ -2738,7 +2741,7 @@ public partial class PreferencesWindow : Window
         int cur = _waitingRowIndex;
         _waitingRowIndex = -1;
         RefreshRow(cur);
-        if (_ctrl != null) _ctrl.RawMode = false;   // Disk Swap is the last row — no auto-advance
+        if (_ctrl != null) _ctrl.RawMode = false;   // chord rows (Save/Load State, Disk Swap) don't auto-advance
     }
 
     private void CommitMapping(string buttonName, string displayText, Key key = Key.None, uint controllerId = 0)
@@ -2784,6 +2787,12 @@ public partial class PreferencesWindow : Window
         e.Handled = true;
     }
 
+    // Frontend actions captured as a two-button chord ("rawA+rawB") rather than a single binding.
+    private static bool IsChordAction(string btnName) =>
+        string.Equals(btnName, "Disk Swap", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(btnName, "Save State", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(btnName, "Load State", StringComparison.OrdinalIgnoreCase);
+
     private void OnControllerButtonChanged(uint rawId, bool isPressed)
     {
         if (_isKeyboardMode || !isPressed || _waitingRowIndex < 0) return;
@@ -2791,8 +2800,9 @@ public partial class PreferencesWindow : Window
         string display = rawId >= 110 ? StickDirToString(rawId)
             : rawId == 100 ? "L2" : rawId == 101 ? "R2" : $"Button {rawId}";
 
-        // Disk Swap chord on the controller too: "rawA+rawB" in the panel id space.
-        if (string.Equals(btnName, "Disk Swap", StringComparison.OrdinalIgnoreCase))
+        // Disk Swap / Save State / Load State are all captured as a chord on the controller:
+        // "rawA+rawB" in the panel id space.
+        if (IsChordAction(btnName))
         {
             if (_chordFirstCtrl == null)
             {
