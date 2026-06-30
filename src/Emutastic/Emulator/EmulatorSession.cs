@@ -2858,10 +2858,12 @@ namespace Emutastic.Emulator
 
         // ── EmuTV save / load-latest state chords ─────────────────────────────────────────────────────
         // Documented in Preferences → EmuTV ("Controller combos"): Save = hold L3 then R2; Load latest =
-        // hold L3 then L2. Raw ids are SdlInput's panel space (7=L3, 8=R3, 100=L2, 101=R2) — the same space
-        // ServiceQuitChord reads, so these fire from FORWARDED input in embedded EmuTV exactly like quit.
-        // Rising-edge (held combo fires once). Each requires its trigger WITHOUT the other trigger and
-        // without R3, so the full L3+R3+L2+R2 quit chord never also saves or loads.
+        // hold R3 then L2. Both are CROSS-HAND (stick-click on one side + trigger on the other) — same-hand
+        // combos like L3+L2 never co-register on a real pad (you can't click the left stick while pulling
+        // the left trigger). Raw ids are SdlInput's panel space (7=L3, 8=R3, 100=L2, 101=R2) — the same
+        // space ServiceQuitChord reads, so these fire from FORWARDED input in embedded EmuTV exactly like
+        // quit. Rising-edge (held combo fires once); each excludes the opposite stick + trigger so the full
+        // L3+R3+L2+R2 quit chord never also saves or loads.
         private bool _saveChordPrev, _loadChordPrev;
         // Per-system rebinds (Controls → FRONTEND "Save State" / "Load State"), raw "A+B" panel ids.
         // -1 = unbound → the documented defaults (L3+R2 save, L3+L2 load) apply. Loaded by LoadDiskSwapChord.
@@ -2877,7 +2879,7 @@ namespace Emutastic.Emulator
                 : l3 && r2 && !l2 && !r3;
             bool load = _loadStateCtrlA >= 0
                 ? _input.IsRawControlDown(_loadStateCtrlA, 0) && _input.IsRawControlDown(_loadStateCtrlB, 0)
-                : l3 && l2 && !r2 && !r3;
+                : r3 && l2 && !l3 && !r2;   // R3 + L2 (cross-hand mirror of save; L3+L2 is same-hand and won't co-register)
             if (l3 && r3 && l2 && r2) { save = false; load = false; }   // quit chord held — suppress both
 
             if (save && !_saveChordPrev)

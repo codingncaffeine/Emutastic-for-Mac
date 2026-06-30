@@ -886,7 +886,7 @@
                                     </TextBlock>
                                     <TextBlock FontSize="12" FontFamily="{DynamicResource PrimaryFont}" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,6,0,0">
                                         <Run FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" Text="Load latest state"/>
-                                        <Run Text="    Hold L3, then L2"/>
+                                        <Run Text="    Hold R3, then L2"/>
                                     </TextBlock>
                                     <TextBlock FontSize="12" FontFamily="{DynamicResource PrimaryFont}" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,6,0,0">
                                         <Run FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" Text="Swap disc"/>

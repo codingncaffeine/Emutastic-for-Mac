@@ -263,6 +263,7 @@ namespace Emutastic.Views
                 SaveOverlayHost.Children.Add(SaveList);
             }
             SaveOverlaySubtitle.Text = (GameList.SelectedItem as Game)?.Title ?? "";
+            System.Diagnostics.Trace.WriteLine($"[EmuTvSaves] EnterSaveStates '{(GameList.SelectedItem as Game)?.Title}' id={(GameList.SelectedItem as Game)?.Id}: SaveList.ItemCount={SaveList.ItemCount}");
             bool any = SaveList.ItemCount > 0;
             SaveOverlayEmpty.IsVisible = !any;
             if (any && SaveList.SelectedIndex < 0) SaveList.SelectedIndex = 0;
@@ -333,10 +334,15 @@ namespace Emutastic.Views
 
                 Dispatcher.UIThread.Post(() =>
                 {
-                    if (_closed || !ReferenceEquals(GameList.SelectedItem, g)) return;
+                    if (_closed || !ReferenceEquals(GameList.SelectedItem, g))
+                    {
+                        System.Diagnostics.Trace.WriteLine($"[EmuTvSaves] LoadSavesFor '{g.Title}' id={g.Id} -> {saves.Count} but bailed (selection changed/closed)");
+                        return;
+                    }
                     SaveList.ItemsSource = saves;
                     NoSavesLabel.IsVisible = saves.Count == 0;
                     if (saves.Count > 0) SaveList.SelectedIndex = 0;
+                    System.Diagnostics.Trace.WriteLine($"[EmuTvSaves] LoadSavesFor '{g.Title}' id={g.Id} -> {saves.Count} states; first screenshot='{(saves.Count > 0 ? saves[0].ScreenshotPath : "")}'");
                 });
             });
         }
