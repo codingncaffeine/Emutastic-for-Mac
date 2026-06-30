@@ -231,12 +231,12 @@ namespace Emutastic.Platform
             {
                 try
                 {
-                    IntPtr nsApp = Gl.objc_msgSend_ret(Gl.objc_getClass("NSApplication"), Gl.sel_registerName("sharedApplication"));
-                    long policy = nsApp != IntPtr.Zero ? (long)Gl.objc_msgSend_ulong(nsApp, Gl.sel_registerName("activationPolicy")) : -1;
-                    bool active = nsApp != IntPtr.Zero && Gl.objc_msgSend_ulong(nsApp, Gl.sel_registerName("isActive")) != 0;
-                    Console.Error.WriteLine($"[GlHost] iomode activationPolicy={policy} (0=Regular 1=Accessory 2=Prohibited) isActive={active}");
+                    long before = Platform.IOSurfaceInterop.ActivationPolicy();
+                    Platform.IOSurfaceInterop.SetBackgroundApp();   // FORCE Accessory (a .app bundle is Regular by default)
+                    long after = Platform.IOSurfaceInterop.ActivationPolicy();
+                    Console.Error.WriteLine($"[GlHost] iomode activationPolicy {before} -> {after} (0=Regular 1=Accessory 2=Prohibited) — must be 1");
                 }
-                catch (Exception e) { Console.Error.WriteLine($"[GlHost] policy probe failed: {e.Message}"); }
+                catch (Exception e) { Console.Error.WriteLine($"[GlHost] policy demote failed: {e.Message}"); }
             }
             _ctx = SDL_GL_CreateContext(_window);
             if (_ctx == IntPtr.Zero) throw new InvalidOperationException($"SDL_GL_CreateContext: {SdlError()}");

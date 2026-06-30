@@ -74,6 +74,20 @@ void emusurf_layer_set_surface(void *layer, void *surface) {
     [CATransaction commit];
 }
 
+// Force the CURRENT process to be a background/accessory app: no Dock tile, no menu bar, never becomes
+// active, invisible to Spaces. The headless game-host MUST call this — inside a .app bundle LaunchServices
+// makes the process Regular (foreground) and the SDL_MAC_BACKGROUND_APP hint only SKIPS promotion, it does
+// NOT demote an already-Regular bundle. A Regular hidden child still participates in activation/Spaces, so
+// when it launches/exits macOS slides the Space. Regular→Accessory is an Apple-supported runtime transition.
+void emusurf_set_background_app(void) {
+    [[NSApplication sharedApplication] setActivationPolicy:NSApplicationActivationPolicyAccessory];
+}
+
+// Read the current process activation policy (0=Regular 1=Accessory 2=Prohibited). For diagnostics.
+long emusurf_activation_policy(void) {
+    return (long)[[NSApplication sharedApplication] activationPolicy];
+}
+
 // Flip the content sublayer vertically (GL renders bottom-up; a CALayer treats contents top-down). Applied
 // to the sublayer's affineTransform — which is ours to control, unlike the AppKit-managed backing layer.
 void emusurf_layer_set_flip(void *layer, int flip) {

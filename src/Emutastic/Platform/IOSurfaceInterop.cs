@@ -131,6 +131,13 @@ namespace Emutastic.Platform
             [DllImport(Lib, EntryPoint = "emusurf_layer_set_flip")]   public static extern void   SetFlip(IntPtr layer, int flip);
         }
 
+        /// <summary>Make THIS process a background/accessory app (no Dock, no menu bar, can't activate,
+        /// invisible to Spaces). The headless game-host must call this so it never causes a Space slide —
+        /// the SDL hint alone doesn't demote a .app bundle that LaunchServices already made Regular.</summary>
+        [DllImport(Lib, EntryPoint = "emusurf_set_background_app")] public static extern void SetBackgroundApp();
+        /// <summary>Current process activation policy: 0=Regular 1=Accessory 2=Prohibited. Diagnostics.</summary>
+        [DllImport(Lib, EntryPoint = "emusurf_activation_policy")]  public static extern long ActivationPolicy();
+
         /// <summary>Read the latest (slot, seq) the child published into the control/mailbox surface.</summary>
         public static (int slot, long seq) ReadMailbox(IntPtr controlBase)
         {
