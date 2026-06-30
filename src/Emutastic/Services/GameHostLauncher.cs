@@ -236,6 +236,13 @@ namespace Emutastic.Services
             {
                 psi.Environment["EMUTASTIC_PRESENT"] = "gl";
                 psi.Environment["EMUTASTIC_GL_IOSURFACE"] = "1";
+                // CRITICAL for the single-window design: the game-host renders headless into the shared
+                // IOSurface and must NEVER become a foreground app. Without this, SDL_CreateWindow promotes
+                // the process to NSApplicationActivationPolicyRegular, which activates + steals focus from
+                // EmuTV; when the child exits macOS slides activation back (the "whole thing slides right"
+                // on close). This SDL hint keeps the child an Accessory/background process: no Dock tile, no
+                // menu bar, no activation, no Space — EmuTV stays the active window throughout.
+                psi.Environment["SDL_MAC_BACKGROUND_APP"] = "1";
             }
 
             Process proc;

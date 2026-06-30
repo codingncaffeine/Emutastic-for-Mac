@@ -224,7 +224,20 @@ namespace Emutastic.Platform
                 SDL_RaiseWindow(_window);   // take focus so KWin doesn't throttle us as an inactive surface
                 if (macBorderlessFs) MacSetFullscreenChrome(true);   // hide the Dock + menu bar over the borderless window
             }
-            // _ioMode: never shown, never raised, no chrome change — there is no visible window.
+            // _ioMode: never shown, never raised, no chrome change — there is no visible window. Verify the
+            // process stayed a background/accessory app (SDL_MAC_BACKGROUND_APP) — if it became Regular (0)
+            // it would steal focus from EmuTV and cause the Space-slide on exit. 0=Regular 1=Accessory 2=Prohibited.
+            if (_ioMode && OperatingSystem.IsMacOS())
+            {
+                try
+                {
+                    IntPtr nsApp = Gl.objc_msgSend_ret(Gl.objc_getClass("NSApplication"), Gl.sel_registerName("sharedApplication"));
+                    long policy = nsApp != IntPtr.Zero ? (long)Gl.objc_msgSend_ulong(nsApp, Gl.sel_registerName("activationPolicy")) : -1;
+                    bool active = nsApp != IntPtr.Zero && Gl.objc_msgSend_ulong(nsApp, Gl.sel_registerName("isActive")) != 0;
+                    Console.Error.WriteLine($"[GlHost] iomode activationPolicy={policy} (0=Regular 1=Accessory 2=Prohibited) isActive={active}");
+                }
+                catch (Exception e) { Console.Error.WriteLine($"[GlHost] policy probe failed: {e.Message}"); }
+            }
             _ctx = SDL_GL_CreateContext(_window);
             if (_ctx == IntPtr.Zero) throw new InvalidOperationException($"SDL_GL_CreateContext: {SdlError()}");
             SDL_GL_MakeCurrent(_window, _ctx);
