@@ -69,13 +69,26 @@ Components: `native/emusurface/{emusurface.c,build.sh}` → `libemusurface.dylib
 3. **Host displays the surface in one Avalonia window** — `GameSurfaceView : NativeControlHost` →
    NSView whose `CALayer.contents` is set to the shared surface each frame (CATransaction on the UI
    thread), driven by the child's per-frame "ready" signal. Validated in a plain test window first.
-4. **Input forwarding** — host forwards abstracted controller/keyboard state over the pipe; child
-   injects via SDL3 `SDL_AttachVirtualJoystick` + `SDL_SetJoystickVirtual*`. ~1 frame latency.
-5. **Wire into EmuTV** — make EmuTV a real fullscreen Space (chromeless via
-   `ExtendClientAreaToDecorationsHint`); LaunchGame hosts the child's surface in EmuTV's own window;
-   quit returns to the carousel. Remove the window-level/activation/presentation-option hacks.
-6. **MoltenVK 3D cores** — render Vulkan cores into an IOSurface-backed `VkImage` via
-   `VK_EXT_metal_objects`, reusing the libvkpresent device/queue.
+4. **Input forwarding** — ✅ done. The active PARENT reads the controller and writes raw SDL-gamepad
+   state into an input-mailbox IOSurface; the child reads it (RB/RA wrap every raw gamepad read) so the
+   whole per-game mapping is reused. Chose the forwarded mailbox over a virtual joystick (no un-testable
+   ABI risk). Keyboard + rumble forwarding tracked as a follow-up (controller is the couch path).
+5. **Wire into EmuTV** — ✅ done. LaunchGame (macOS) hosts the child's surface in EmuTV's own window via
+   `GameSurfaceView`; quit returns to the carousel. Because the game lives in EmuTV's window, the app
+   never loses focus → the Dock/menu stay hidden with NO window-level/activation/presentation hacks.
+6. **3D / Vulkan cores** — ✅ functionally done via readback (see below); zero-copy deferred as a
+   perf optimization.
+
+### Phase 6 detail — 3D/Vulkan cores already composite into the IOSurface (no new code)
+
+On macOS, HW (Vulkan/MoltenVK) cores already render **offscreen** (`native/vkpresent/macvk.c`) and read
+the frame back to a CPU BGRA buffer that flows through the **same `Present()` path** as 2D cores
+(`_hwBufA/_hwBufB`, "the software-readback path"). The embedded IOSurface present sits downstream of that
+path, so 3D cores composite into the shared ring for free — and identically to the current Mac 3D path
+(which is already readback), so parity holds. Verified on an M4: mupen64plus_next (ParaLLEl-RDP) running
+Ocarina of Time embedded — ring bound, `hwReadback≈1.0ms`, vsync-locked 100 fps, 644 valid frames, no
+errors. Zero-copy (`VK_EXT_metal_objects`: render straight into an IOSurface-backed `VkImage`, skipping the
+~1ms readback) is a possible optimization, not required for parity — deferred.
 
 Each phase builds clean, is committed + pushed, and any problem found mid-phase is split into a
 sub-task and resolved before advancing. Aesthetic/functional target: **1:1 with the Linux/Windows
