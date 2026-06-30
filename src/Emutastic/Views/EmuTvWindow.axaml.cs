@@ -262,11 +262,20 @@ namespace Emutastic.Views
                 home.Children.Remove(SaveList);
                 SaveOverlayHost.Children.Add(SaveList);
             }
-            SaveOverlaySubtitle.Text = (GameList.SelectedItem as Game)?.Title ?? "";
-            System.Diagnostics.Trace.WriteLine($"[EmuTvSaves] EnterSaveStates '{(GameList.SelectedItem as Game)?.Title}' id={(GameList.SelectedItem as Game)?.Id}: SaveList.ItemCount={SaveList.ItemCount}");
-            bool any = SaveList.ItemCount > 0;
+            // Load THIS game's saves FRESH and synchronously every time the browser opens — never rely on a
+            // prior async LoadSavesFor having finished (or having run since the last in-game save). The query
+            // is a single indexed lookup, cheap on the UI thread.
+            var g = GameList.SelectedItem as Game;
+            SaveOverlaySubtitle.Text = g?.Title ?? "";
+            List<SaveState> saves;
+            try { saves = (g != null ? _db?.GetSaveStatesByGame(g.Id) : null) ?? new List<SaveState>(); }
+            catch { saves = new List<SaveState>(); }
+            SaveList.ItemsSource = saves;
+            NoSavesLabel.IsVisible = saves.Count == 0;
+            System.Diagnostics.Trace.WriteLine($"[EmuTvSaves] EnterSaveStates '{g?.Title}' id={g?.Id}: {saves.Count} states; first screenshot='{(saves.Count > 0 ? saves[0].ScreenshotPath : "")}'");
+            bool any = saves.Count > 0;
             SaveOverlayEmpty.IsVisible = !any;
-            if (any && SaveList.SelectedIndex < 0) SaveList.SelectedIndex = 0;
+            if (any) SaveList.SelectedIndex = 0;
             SaveOverlay.IsVisible = true;
             UpdateHint();
             _navDir = 0;
