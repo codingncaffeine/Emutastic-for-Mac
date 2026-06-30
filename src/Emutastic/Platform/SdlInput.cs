@@ -119,6 +119,54 @@ namespace Emutastic.Platform
         const int AXIS_LEFTX = 0, AXIS_LEFTY = 1, AXIS_RIGHTX = 2, AXIS_RIGHTY = 3, AXIS_LTRIG = 4, AXIS_RTRIG = 5;
         const short STICK_THRESHOLD = 18000, TRIG_THRESHOLD = 12000;
 
+        // ── Embedded (macOS single-window EmuTV) forwarded input ────────────────────────────────────
+        // The headless child isn't the active app, so it can't read the controller on macOS. The active
+        // PARENT reads it and forwards the raw SDL-gamepad state via an IOSurface mailbox; we read THAT
+        // instead of SDL. RB/RA swap the source transparently so the entire mapping below is reused as-is.
+        private bool _embedded;
+        private readonly uint[] _fwdMask = new uint[InputMailbox.MaxPorts];
+        private readonly short[,] _fwdAxis = new short[InputMailbox.MaxPorts, InputMailbox.Axes];
+        public bool IsEmbedded => _embedded;
+
+        // Embedded mode encodes the port in the synthetic handle (IntPtr)(port+1), so PortOf decodes it.
+        private static int PortOf(IntPtr h) => (int)h - 1;
+        private bool RB(IntPtr h, int button)
+        {
+            if (!_embedded) return SDL_GetGamepadButton(h, button);
+            int p = PortOf(h);
+            return p >= 0 && p < InputMailbox.MaxPorts && button >= 0 && button < 21 && (_fwdMask[p] & (1u << button)) != 0;
+        }
+        private short RA(IntPtr h, int axis)
+        {
+            if (!_embedded) return SDL_GetGamepadAxis(h, axis);
+            int p = PortOf(h);
+            return (p >= 0 && p < InputMailbox.MaxPorts && axis >= 0 && axis < InputMailbox.Axes) ? _fwdAxis[p, axis] : (short)0;
+        }
+
+        /// <summary>Switch to embedded forwarded-input mode and seed a fixed set of synthetic ports (never
+        /// mutated afterwards, so the core worker can read _pads while the present thread writes forwarded
+        /// state — no cross-thread reallocation). Call once before the loop.</summary>
+        public void EnableEmbedded()
+        {
+            _embedded = true;
+            _pads.Clear();
+            for (int p = 0; p < InputMailbox.MaxPorts; p++) _pads.Add(((uint)p, (IntPtr)(p + 1)));
+        }
+
+        /// <summary>Copy the parent's forwarded controller state out of the input mailbox. Replaces Poll() in
+        /// embedded mode (the child opens no real SDL gamepads). Idle ports read as zero.</summary>
+        public unsafe void ApplyForwarded(IntPtr mailboxBase)
+        {
+            if (mailboxBase == IntPtr.Zero) return;
+            byte* b = (byte*)mailboxBase;
+            for (int p = 0; p < InputMailbox.MaxPorts; p++)
+            {
+                int off = InputMailbox.PortOffset(p);
+                _fwdMask[p] = *(uint*)(b + off);
+                for (int a = 0; a < InputMailbox.Axes; a++) _fwdAxis[p, a] = *(short*)(b + off + 4 + a * 2);
+            }
+        }
+
         // Cheap ctor (no SDL calls) so the XAML designer can construct an EmulatorSession
         // without a working SDL3 library. SDL is initialized lazily in Initialize().
         public SdlInput() { }
@@ -222,19 +270,19 @@ namespace Emutastic.Platform
         private bool ReadRawControl(IntPtr h, int rawId)
         {
             if (rawId < 0) return false;
-            if (rawId < 21) return SDL_GetGamepadButton(h, rawId);
+            if (rawId < 21) return RB(h, rawId);
             switch (rawId)
             {
-                case 100: return SDL_GetGamepadAxis(h, AXIS_LTRIG) > TRIG_THRESHOLD;
-                case 101: return SDL_GetGamepadAxis(h, AXIS_RTRIG) > TRIG_THRESHOLD;
-                case 110: return SDL_GetGamepadAxis(h, AXIS_LEFTX)  < -STICK_THRESHOLD;
-                case 111: return SDL_GetGamepadAxis(h, AXIS_LEFTX)  >  STICK_THRESHOLD;
-                case 112: return SDL_GetGamepadAxis(h, AXIS_LEFTY)  < -STICK_THRESHOLD;
-                case 113: return SDL_GetGamepadAxis(h, AXIS_LEFTY)  >  STICK_THRESHOLD;
-                case 114: return SDL_GetGamepadAxis(h, AXIS_RIGHTX) < -STICK_THRESHOLD;
-                case 115: return SDL_GetGamepadAxis(h, AXIS_RIGHTX) >  STICK_THRESHOLD;
-                case 116: return SDL_GetGamepadAxis(h, AXIS_RIGHTY) < -STICK_THRESHOLD;
-                case 117: return SDL_GetGamepadAxis(h, AXIS_RIGHTY) >  STICK_THRESHOLD;
+                case 100: return RA(h, AXIS_LTRIG) > TRIG_THRESHOLD;
+                case 101: return RA(h, AXIS_RTRIG) > TRIG_THRESHOLD;
+                case 110: return RA(h, AXIS_LEFTX)  < -STICK_THRESHOLD;
+                case 111: return RA(h, AXIS_LEFTX)  >  STICK_THRESHOLD;
+                case 112: return RA(h, AXIS_LEFTY)  < -STICK_THRESHOLD;
+                case 113: return RA(h, AXIS_LEFTY)  >  STICK_THRESHOLD;
+                case 114: return RA(h, AXIS_RIGHTX) < -STICK_THRESHOLD;
+                case 115: return RA(h, AXIS_RIGHTX) >  STICK_THRESHOLD;
+                case 116: return RA(h, AXIS_RIGHTY) < -STICK_THRESHOLD;
+                case 117: return RA(h, AXIS_RIGHTY) >  STICK_THRESHOLD;
                 default:  return false;
             }
         }
@@ -296,7 +344,7 @@ namespace Emutastic.Platform
         /// <summary>Call once per emulation frame before reading input state.</summary>
         public void Poll()
         {
-            if (!_initialized) return;
+            if (!_initialized || _embedded) return;   // embedded: input comes via ApplyForwarded, not SDL
             SDL_PumpEvents();      // ensure hotplug add/remove events are processed
             SDL_UpdateGamepads();  // refresh open-gamepad button/axis state
             // Hunt fast (~6×/sec) while no pad is open, then back off to ~1×/sec hotplug rescan, so a pad
@@ -319,7 +367,7 @@ namespace Emutastic.Platform
         {
             if (port < 0 || port >= _pads.Count) return false;
             var h = _pads[port].handle;
-            return h != IntPtr.Zero && SDL_GetGamepadButton(h, sdlButton);
+            return h != IntPtr.Zero && RB(h, sdlButton);
         }
 
         /// <summary>Raw read in the panel's full id space (0..20 SDL button, 100/101 trigger,
@@ -356,14 +404,14 @@ namespace Emutastic.Platform
                 else
                 {
                     int sdlBtn = _retroToSdl[(int)id];
-                    if (sdlBtn >= 0 && SDL_GetGamepadButton(h, sdlBtn)) pressed = true;
+                    if (sdlBtn >= 0 && RB(h, sdlBtn)) pressed = true;
                     // Default L2/R2: the trigger axes (SDL has no digital trigger buttons).
                     // Matters out-of-the-box for NDS Touch — DeSmuME taps on the JOYPAD_R2
                     // wire, so the right trigger taps with no Controls-panel setup.
                     else if (sdlBtn < 0 && (int)id == RJ_L2)
-                        pressed = SDL_GetGamepadAxis(h, AXIS_LTRIG) > TRIG_THRESHOLD;
+                        pressed = RA(h, AXIS_LTRIG) > TRIG_THRESHOLD;
                     else if (sdlBtn < 0 && (int)id == RJ_R2)
-                        pressed = SDL_GetGamepadAxis(h, AXIS_RTRIG) > TRIG_THRESHOLD;
+                        pressed = RA(h, AXIS_RTRIG) > TRIG_THRESHOLD;
                 }
 
                 // Digital consoles: let the left analog stick drive the d-pad when no digital
@@ -371,10 +419,10 @@ namespace Emutastic.Platform
                 if (!pressed && PromoteAnalogStickToDpad)
                     pressed = (int)id switch
                     {
-                        RJ_UP    => SDL_GetGamepadAxis(h, AXIS_LEFTY) < -STICK_THRESHOLD,
-                        RJ_DOWN  => SDL_GetGamepadAxis(h, AXIS_LEFTY) >  STICK_THRESHOLD,
-                        RJ_LEFT  => SDL_GetGamepadAxis(h, AXIS_LEFTX) < -STICK_THRESHOLD,
-                        RJ_RIGHT => SDL_GetGamepadAxis(h, AXIS_LEFTX) >  STICK_THRESHOLD,
+                        RJ_UP    => RA(h, AXIS_LEFTY) < -STICK_THRESHOLD,
+                        RJ_DOWN  => RA(h, AXIS_LEFTY) >  STICK_THRESHOLD,
+                        RJ_LEFT  => RA(h, AXIS_LEFTX) < -STICK_THRESHOLD,
+                        RJ_RIGHT => RA(h, AXIS_LEFTX) >  STICK_THRESHOLD,
                         _        => false
                     };
             }
@@ -422,8 +470,8 @@ namespace Emutastic.Platform
             if (index == 2)
                 return id switch
                 {
-                    12u => SDL_GetGamepadAxis(h, AXIS_LTRIG),   // JOYPAD_L2
-                    13u => SDL_GetGamepadAxis(h, AXIS_RTRIG),   // JOYPAD_R2
+                    12u => RA(h, AXIS_LTRIG),   // JOYPAD_L2
+                    13u => RA(h, AXIS_RTRIG),   // JOYPAD_R2
                     _   => (short)0
                 };
 
@@ -431,7 +479,7 @@ namespace Emutastic.Platform
             // pointer) so we can tell a dead pointer from a dead tap. Throttled to meaningful motion.
             if (_inputDiag && index == 1 && port == 0)
             {
-                short ax = SDL_GetGamepadAxis(h, id == 0 ? AXIS_RIGHTX : AXIS_RIGHTY);
+                short ax = RA(h, id == 0 ? AXIS_RIGHTX : AXIS_RIGHTY);
                 if (System.Math.Abs(ax) > 8000 && (id != _rsLastId || System.Math.Abs(ax - _rsLastVal) > 6000))
                 {
                     _rsLastId = id; _rsLastVal = ax;
@@ -461,25 +509,25 @@ namespace Emutastic.Platform
                 _        => -1
             };
             if (axis < 0) return 0;
-            return SDL_GetGamepadAxis(h, axis);
+            return RA(h, axis);
         }
 
         // Deflection magnitude (0..32767) of one bound direction: the matching half of a
         // stick axis (raw ids 110..117), trigger pressure (100/101), or a digital button
         // (0..20) at full scale. Unbound (-1) reads as 0.
-        private static short HalfMagnitude(IntPtr h, int rawId)
+        private short HalfMagnitude(IntPtr h, int rawId)
         {
             switch (rawId)
             {
                 case < 0:  return 0;
-                case < 21: return SDL_GetGamepadButton(h, rawId) ? (short)32767 : (short)0;
-                case 100:  { short v = SDL_GetGamepadAxis(h, AXIS_LTRIG); return v > 0 ? v : (short)0; }
-                case 101:  { short v = SDL_GetGamepadAxis(h, AXIS_RTRIG); return v > 0 ? v : (short)0; }
+                case < 21: return RB(h, rawId) ? (short)32767 : (short)0;
+                case 100:  { short v = RA(h, AXIS_LTRIG); return v > 0 ? v : (short)0; }
+                case 101:  { short v = RA(h, AXIS_RTRIG); return v > 0 ? v : (short)0; }
                 case >= 110 and <= 117:
                 {
                     int axis  = (rawId - 110) / 2;        // LEFTX, LEFTY, RIGHTX, RIGHTY
                     bool neg  = ((rawId - 110) & 1) == 0; // even ids = negative half
-                    int v     = SDL_GetGamepadAxis(h, axis);
+                    int v     = RA(h, axis);
                     if (neg) return v < 0 ? (short)Math.Min(-v, 32767) : (short)0;
                     return v > 0 ? (short)v : (short)0;
                 }

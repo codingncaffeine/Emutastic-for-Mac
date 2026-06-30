@@ -28,6 +28,14 @@ sealed class Program
             Emutastic.SelfTest.RunImport(args[1], args[2]);
             return;
         }
+        // Dev-only: IOSurface interop selftest — `Emutastic --selftest-iosurface`. Proves the managed
+        // libemusurface marshalling (create/lookup/lock + pattern round-trip) at runtime, headless.
+        // Underpins the native single-window embedded game-render path (Platform/IOSurfaceInterop.cs).
+        if (args.Length >= 1 && args[0] == "--selftest-iosurface")
+        {
+            Environment.Exit(Emutastic.Platform.IOSurfaceInterop.SelfTest());
+            return;
+        }
         // Separate game process (Branch B): runs the SDL-GL game window with NO Avalonia in this process
         // (Avalonia + SDL-GL in one process hangs after present #1). Exit code propagates to the parent
         // supervisor for crash detection. See docs/gl-present-phase1-host-process-design.md.
@@ -83,7 +91,8 @@ sealed class Program
         if (args.Length >= 2 && !args[0].StartsWith("--")
             && System.IO.File.Exists(args[0]) && System.IO.File.Exists(args[1])
             && string.Equals((Environment.GetEnvironmentVariable("EMUTASTIC_PRESENT") ?? "").Trim(), "gl", StringComparison.OrdinalIgnoreCase)
-            && Environment.GetEnvironmentVariable("EMUTASTIC_GAMEHOST") != "0")   // =0 forces in-process (A/B)
+            && Environment.GetEnvironmentVariable("EMUTASTIC_GAMEHOST") != "0"   // =0 forces in-process (A/B)
+            && Environment.GetEnvironmentVariable("EMUTASTIC_EMBED_TEST") != "1")   // =1 falls through to the embed-test window
         {
             Environment.Exit(Emutastic.GameHost.Run(new[] { "--game-host", args[0], args[1] }));
             return;

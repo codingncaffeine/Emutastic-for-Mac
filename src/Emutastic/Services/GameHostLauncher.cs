@@ -84,7 +84,8 @@ namespace Emutastic.Services
         /// for this session (e.g. direct CLI launches).
         /// </summary>
         public static void Launch(string corePath, string romPath, string console,
-            Models.Game? game, string? loadStatePath, Action<GameHostResult?>? onExit = null)
+            Models.Game? game, string? loadStatePath, Action<GameHostResult?>? onExit = null, bool fullscreen = false,
+            bool embedded = false)
         {
             // GL present is now the DEFAULT path: the separate --game-host process runs the decoupled
             // pacing (audio-clock emu thread + vsync present thread), which on this hardware gives correct
@@ -99,6 +100,7 @@ namespace Emutastic.Services
             {
                 // Legacy in-process path — unchanged behavior, the default until GL ships (Phase 5).
                 var win = new Views.EmulatorWindow(new EmulatorSession(corePath, romPath, console));
+                if (fullscreen) win.WindowState = Avalonia.Controls.WindowState.FullScreen;   // EmuTV couch launches
                 if (onExit != null) win.Closed += (_, _) => onExit(new GameHostResult { ExitCode = 0, PlaySeconds = 0 });
                 win.Show();
                 return;
@@ -120,15 +122,16 @@ namespace Emutastic.Services
                     // sync, bounded so launch can't hang.
                     try { await syncSvc.EnsureConsoleSavesReadyAsync(console).ConfigureAwait(false); }
                     catch (Exception ex) { CloudSyncLog.Write($"pre-launch memcard sync failed: {ex.Message}"); }
-                    Dispatcher.UIThread.Post(() => SpawnHost(corePath, romPath, console, game, loadStatePath, onExit));
+                    Dispatcher.UIThread.Post(() => SpawnHost(corePath, romPath, console, game, loadStatePath, onExit, fullscreen, embedded));
                 });
                 return;
             }
-            SpawnHost(corePath, romPath, console, game, loadStatePath, onExit);
+            SpawnHost(corePath, romPath, console, game, loadStatePath, onExit, fullscreen, embedded);
         }
 
         private static void SpawnHost(string corePath, string romPath, string console,
-            Models.Game? game, string? loadStatePath, Action<GameHostResult?>? onExit)
+            Models.Game? game, string? loadStatePath, Action<GameHostResult?>? onExit, bool fullscreen = false,
+            bool embedded = false)
         {
             string results = Path.Combine(Path.GetTempPath(), $"emutastic-host-{Guid.NewGuid():N}.json");
             var psi = new ProcessStartInfo
@@ -150,6 +153,7 @@ namespace Emutastic.Services
             psi.ArgumentList.Add(corePath);
             psi.ArgumentList.Add(romPath);
             if (!string.IsNullOrEmpty(console)) { psi.ArgumentList.Add("--console"); psi.ArgumentList.Add(console); }
+            if (fullscreen) psi.ArgumentList.Add("--fullscreen");   // EmuTV couch launches go fullscreen
             psi.ArgumentList.Add("--results"); psi.ArgumentList.Add(results);
             psi.ArgumentList.Add("--parent-stdin");   // we hold the child's stdin; closing it = graceful quit
             // Portable mode forwarding: the child re-detects via portable.txt next to the
@@ -224,6 +228,22 @@ namespace Emutastic.Services
             // making the warm-up genuinely permanent across sessions (and across pre-warm runs).
             if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("MESA_SHADER_CACHE_MAX_SIZE")))
                 psi.Environment["MESA_SHADER_CACHE_MAX_SIZE"] = "12G";
+
+            // macOS native single-window EmuTV: render headless into shared IOSurfaces (the parent composites
+            // them in its own window) instead of opening a separate game window. Set ONLY for embedded couch
+            // launches — every other launch path keeps its own window, unchanged.
+            if (embedded && OperatingSystem.IsMacOS())
+            {
+                psi.Environment["EMUTASTIC_PRESENT"] = "gl";
+                psi.Environment["EMUTASTIC_GL_IOSURFACE"] = "1";
+                // CRITICAL for the single-window design: the game-host renders headless into the shared
+                // IOSurface and must NEVER become a foreground app. Without this, SDL_CreateWindow promotes
+                // the process to NSApplicationActivationPolicyRegular, which activates + steals focus from
+                // EmuTV; when the child exits macOS slides activation back (the "whole thing slides right"
+                // on close). This SDL hint keeps the child an Accessory/background process: no Dock tile, no
+                // menu bar, no activation, no Space — EmuTV stays the active window throughout.
+                psi.Environment["SDL_MAC_BACKGROUND_APP"] = "1";
+            }
 
             Process proc;
             try { proc = Process.Start(psi)!; }

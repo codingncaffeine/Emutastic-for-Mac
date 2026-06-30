@@ -430,7 +430,9 @@ namespace Emutastic.Emulator
                     else _running = false;
                     break;
                 }
-                case SC_F11:    _glFullscreen = !_glFullscreen; _gl?.SetFullscreen(_glFullscreen); break;
+                // F11 toggles fullscreen on whichever presenter is live: _gl on the inline path,
+                // _wlTop on the macOS DECOUPLED path (a GlPresenter stored in _wlTop).
+                case SC_F11:    _glFullscreen = !_glFullscreen; ((IGamePresenter?)_gl ?? _wlTop)?.SetFullscreen(_glFullscreen); break;
                 case SC_P:      _paused = !_paused; break;
                 case SC_F5:     RequestSaveState("Quick Save"); break;   // upstream's F5 quick save
                 case SC_F7:     RequestQuickLoad(); break;               // upstream's F7 quick load
@@ -729,6 +731,8 @@ namespace Emutastic.Emulator
 
                 if (!_noInputPoll) _input.Poll();
                 ServiceDiskSwap();   // disc-swap chord (L3+Start) + FDS/deferred-insert ticks
+                ServiceQuitChord();  // EmuTV quit chord (L3+R3+L2+R2 held ~1.5s) → quit the game
+                ServiceStateChords();// EmuTV save (L3+R2) / load-latest (L3+L2) state chords
                 if (_saveStatePending) ExecuteSaveOnEmuThread();   // between retro_run calls, like upstream
                 if (_loadStatePending) ExecuteLoadOnEmuThread();
                 if (_cheatsApplyPending) ExecuteCheatsApplyOnEmuThread();
@@ -1001,6 +1005,8 @@ namespace Emutastic.Emulator
                 // main thread — the present(main) loop owns all SDL pumping there, so the core worker skips it.
                 if (!_noInputPoll && !OperatingSystem.IsMacOS()) _input.Poll();
                 ServiceDiskSwap();   // disc-swap chord (L3+Start) + FDS/deferred-insert ticks
+                ServiceQuitChord();  // EmuTV quit chord (L3+R3+L2+R2 held ~1.5s) → quit the game
+                ServiceStateChords();// EmuTV save (L3+R2) / load-latest (L3+L2) state chords
                 if (_saveStatePending) ExecuteSaveOnEmuThread();   // between retro_run calls, like upstream
                 if (_loadStatePending) ExecuteLoadOnEmuThread();
                 if (_cheatsApplyPending) ExecuteCheatsApplyOnEmuThread();
@@ -1165,6 +1171,15 @@ namespace Emutastic.Emulator
                 return;
             }
             _wlTop = gl;
+            // macOS embedded EmuTV: the game renders headless into shared IOSurfaces; hand the parent the
+            // ring + control ids ONCE so it can look them up and composite the latest in its own window.
+            if (gl.IoSurfaceMode)
+            {
+                gl.GetIoSize(out int iw, out int ih);
+                _input.EnableEmbedded();   // input arrives via the parent's forwarded mailbox, not local SDL
+                EmitHostCommand?.Invoke($"iosurface {iw}x{ih} {gl.IoControlId} {gl.IoInputId} {string.Join(",", gl.IoSurfaceIds)}");
+                Trace.WriteLine($"[Emu] EmuTV embedded: IOSurface ring {iw}x{ih} ctrl={gl.IoControlId} input={gl.IoInputId} ids=[{string.Join(",", gl.IoSurfaceIds)}]");
+            }
             Trace.WriteLine("[Emu] GL present ACTIVE (DECOUPLED: present thread + audio-clock emu thread)");
             RunPresenterOsdLoop(ready, "DECOUPLED");
         }
@@ -1765,7 +1780,13 @@ namespace Emutastic.Emulator
                 // macOS: the core worker doesn't pump SDL (must be main-thread only), so the present(main)
                 // loop refreshes gamepad/joystick state here each frame; the core reads cached button/axis
                 // state thread-safely. Keyboard arrives via OnGlKey inside PumpEvents below.
-                if (OperatingSystem.IsMacOS() && !_noInputPoll) _input.Poll();
+                // Embedded EmuTV: read the parent's forwarded controller mailbox instead of local SDL (the
+                // headless child can't read the controller while inactive on macOS). Else the normal poll.
+                if (OperatingSystem.IsMacOS() && !_noInputPoll)
+                {
+                    if (_input.IsEmbedded && _wlTop is GlPresenter gp) _input.ApplyForwarded(gp.IoInputBase);
+                    else _input.Poll();
+                }
                 _wlTop.PumpEvents();   // drain input first so a click/hover affects THIS frame's HUD
 
                 double nowMs = clock.Elapsed.TotalMilliseconds;
@@ -2774,6 +2795,23 @@ namespace Emutastic.Emulator
                 }
             if (_diskSwapCtrlA >= 0 || _diskSwapKeySCa >= 0)
                 Trace.WriteLine($"[Emu] disk swap chord: ctrl {_diskSwapCtrlA}+{_diskSwapCtrlB}, key sc {_diskSwapKeySCa}+{_diskSwapKeySCb}");
+
+            // EmuTV save / load-state chords (FRONTEND rows). Unbound (-1) → documented defaults L3+R2 / L3+L2.
+            _saveStateCtrlA = _saveStateCtrlB = _loadStateCtrlA = _loadStateCtrlB = -1;
+            foreach (var m in p1.ControllerMappings)
+            {
+                bool isSave = string.Equals(m.ButtonName, "Save State", StringComparison.OrdinalIgnoreCase);
+                bool isLoad = string.Equals(m.ButtonName, "Load State", StringComparison.OrdinalIgnoreCase);
+                if (!isSave && !isLoad) continue;
+                var parts = (m.InputIdentifier ?? "").Split('+', 2);
+                if (parts.Length == 2 && int.TryParse(parts[0].Trim(), out int a) && int.TryParse(parts[1].Trim(), out int b))
+                {
+                    if (isSave) { _saveStateCtrlA = a; _saveStateCtrlB = b; }
+                    else        { _loadStateCtrlA = a; _loadStateCtrlB = b; }
+                }
+            }
+            if (_saveStateCtrlA >= 0 || _loadStateCtrlA >= 0)
+                Trace.WriteLine($"[Emu] state chords: save {_saveStateCtrlA}+{_saveStateCtrlB}, load {_loadStateCtrlA}+{_loadStateCtrlB}");
         }
 
         // Avalonia Key enum name → SDL scancode for the chord-capturable set. -1 = unmappable
@@ -2793,6 +2831,67 @@ namespace Emutastic.Emulator
                 "LeftAlt" => 226, "RightAlt" => 230,
                 _ => -1,
             };
+        }
+
+        // ── EmuTV quit chord ────────────────────────────────────────────────────────────────────────
+        // The same L3+R3+L2+R2 chord that launches EmuTV quits a running game when held ~1.5s, so the
+        // couch shell needs no keyboard to exit. Frame-counted on the emu thread; raw reads in SdlInput's
+        // panel id space (7/8 = left/right stick click, 100/101 = left/right trigger), port 0.
+        private int _quitChordFrames;
+        private bool _quitChordFired;
+        private const int QuitChordFramesRequired = 90;   // ~1.5s at 60fps
+
+        private void ServiceQuitChord()
+        {
+            bool held = _input.IsRawControlDown(7, 0) && _input.IsRawControlDown(8, 0)
+                     && _input.IsRawControlDown(100, 0) && _input.IsRawControlDown(101, 0);
+            if (held)
+            {
+                if (!_quitChordFired && ++_quitChordFrames >= QuitChordFramesRequired)
+                {
+                    _quitChordFired = true;
+                    RequestQuit();
+                }
+            }
+            else _quitChordFrames = 0;
+        }
+
+        // ── EmuTV save / load-latest state chords ─────────────────────────────────────────────────────
+        // Documented in Preferences → EmuTV ("Controller combos"): Save = hold L3 then R2; Load latest =
+        // hold R3 then L2. Both are CROSS-HAND (stick-click on one side + trigger on the other) — same-hand
+        // combos like L3+L2 never co-register on a real pad (you can't click the left stick while pulling
+        // the left trigger). Raw ids are SdlInput's panel space (7=L3, 8=R3, 100=L2, 101=R2) — the same
+        // space ServiceQuitChord reads, so these fire from FORWARDED input in embedded EmuTV exactly like
+        // quit. Rising-edge (held combo fires once); each excludes the opposite stick + trigger so the full
+        // L3+R3+L2+R2 quit chord never also saves or loads.
+        private bool _saveChordPrev, _loadChordPrev;
+        // Per-system rebinds (Controls → FRONTEND "Save State" / "Load State"), raw "A+B" panel ids.
+        // -1 = unbound → the documented defaults (L3+R2 save, L3+L2 load) apply. Loaded by LoadDiskSwapChord.
+        private int _saveStateCtrlA = -1, _saveStateCtrlB = -1, _loadStateCtrlA = -1, _loadStateCtrlB = -1;
+        private void ServiceStateChords()
+        {
+            bool l3 = _input.IsRawControlDown(7, 0), r3 = _input.IsRawControlDown(8, 0);
+            bool l2 = _input.IsRawControlDown(100, 0), r2 = _input.IsRawControlDown(101, 0);
+            // Configured chord wins; otherwise the documented default (L3+R2 / L3+L2), which also excludes
+            // the other trigger + R3 so it's precise. Either way, never co-fire with the full quit chord.
+            bool save = _saveStateCtrlA >= 0
+                ? _input.IsRawControlDown(_saveStateCtrlA, 0) && _input.IsRawControlDown(_saveStateCtrlB, 0)
+                : l3 && r2 && !l2 && !r3;
+            bool load = _loadStateCtrlA >= 0
+                ? _input.IsRawControlDown(_loadStateCtrlA, 0) && _input.IsRawControlDown(_loadStateCtrlB, 0)
+                : r3 && l2 && !l3 && !r2;   // R3 + L2 (cross-hand mirror of save; L3+L2 is same-hand and won't co-register)
+            if (l3 && r3 && l2 && r2) { save = false; load = false; }   // quit chord held — suppress both
+
+            if (save && !_saveChordPrev)
+                RequestSaveState(DateTime.Now.ToString("yyyy-MM-dd HH.mm.ss"));   // timestamped, like the OSD Save button
+            if (load && !_loadChordPrev)
+            {
+                var recent = RecentSaveStates();   // newest first
+                if (recent.Count > 0) RequestLoadState(recent[0].Path, recent[0].Name);
+                else ShowDiskMessage("No save state to load", 3);
+            }
+            _saveChordPrev = save;
+            _loadChordPrev = load;
         }
 
         // Called once per emu frame (after input poll). Detects the disc-swap chord (rising edge) and

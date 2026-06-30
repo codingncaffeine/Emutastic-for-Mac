@@ -116,6 +116,12 @@ namespace Emutastic.Platform
         [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_GetWindowPosition(IntPtr window, out int x, out int y);
         [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_GetWindowSize(IntPtr window, out int w, out int h);
         [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_SetWindowFullscreen(IntPtr window, [MarshalAs(UnmanagedType.I1)] bool fullscreen);
+        public const ulong SDL_WINDOW_BORDERLESS = 0x0000000000000010UL;   // no title bar / window chrome
+        [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_SetWindowPosition(IntPtr window, int x, int y);
+        [DllImport(SDL)] public static extern uint SDL_GetPrimaryDisplay();
+        [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_GetDisplayBounds(uint displayID, out SDL_Rect rect);
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        public struct SDL_Rect { public int x, y, w, h; }
         [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_PollEvent(byte[] ev);   // SDL_Event union; we only drain
         [DllImport(SDL)] public static extern IntPtr SDL_GetError();
         [DllImport(SDL)] public static extern uint SDL_GetWindowID(IntPtr window);
@@ -128,7 +134,14 @@ namespace Emutastic.Platform
         [DllImport("/usr/lib/libobjc.A.dylib")] public static extern IntPtr sel_registerName([MarshalAs(UnmanagedType.LPStr)] string s);
         [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_msgSend")] public static extern ulong objc_msgSend_ulong(IntPtr receiver, IntPtr sel);
         [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_msgSend")] public static extern void  objc_msgSend_void_ptr(IntPtr receiver, IntPtr sel, IntPtr arg);
+        [DllImport("/usr/lib/libobjc.A.dylib")] public static extern IntPtr objc_getClass([MarshalAs(UnmanagedType.LPStr)] string name);
+        [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_msgSend")] public static extern IntPtr objc_msgSend_ret(IntPtr receiver, IntPtr sel);
+        [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_msgSend")] public static extern void  objc_msgSend_void_ulong(IntPtr receiver, IntPtr sel, ulong arg);
+        [DllImport("/usr/lib/libobjc.A.dylib", EntryPoint = "objc_msgSend")] public static extern void  objc_msgSend_void_bool(IntPtr receiver, IntPtr sel, [MarshalAs(UnmanagedType.I1)] bool arg);
         public const ulong NSWindowStyleMaskFullScreen = 1UL << 14;   // native macOS fullscreen-space bit
+        // NSApplicationPresentationOptions: hide the Dock + menu bar so a borderless game window looks
+        // truly fullscreen (HideMenuBar requires HideDock). Reset to 0 to restore.
+        public const ulong NSAppPresentationHideDock = 1UL << 1, NSAppPresentationHideMenuBar = 1UL << 3;
 
         // ---- GL 1.1 (BGRA texture → fullscreen quad, fixed-function; matches RetroArch gl1) ----
         public const uint GL_TEXTURE_2D = 0x0DE1, GL_RGBA = 0x1908, GL_RGBA8 = 0x8058, GL_BGRA = 0x80E1,
