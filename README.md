@@ -28,6 +28,9 @@ core loading.
 
 ## Highlights
 
+- 📺 **EmuTV — living-room mode** — a controller-only, big-screen couch interface: browse and launch
+  your whole library from the sofa. On the Mac, games render *inside* the EmuTV window (no second
+  window, no Dock/menu-bar flash) and drop you right back to the couch shell on exit. *(See below.)*
 - 🏆 **RetroAchievements** — full hardcore-mode compliance, in-game unlock toasts, a trophy case with
   activity heatmap, and friend unlock feeds. Native achievement support is rare on the Mac.
 - ☁️ **GitHub cloud sync** — battery saves and your whole library database follow you across Mac,
@@ -45,9 +48,35 @@ core loading.
 - 🍎 **Native Mac fit** — Apple Silicon build, real macOS window controls, and a fully self-contained
   `.app` (no Homebrew, no .NET install, nothing to set up).
 
-**Compared to the Windows build,** the Mac port leaves out just two things: **EmuTV** (the controller-only
-couch mode) and the high-end **PlayStation 2 / PlayStation 3** cores, which have no Apple Silicon libretro
-build. Everything else is the same app.
+**Compared to the Windows build,** the Mac port now leaves out just one thing: the high-end **PlayStation 2
+/ PlayStation 3** cores, which have no Apple Silicon libretro build. Everything else — **EmuTV** included
+(new in v0.7.9) — is the same app.
+
+---
+
+## 📺 EmuTV — Living-Room Mode
+
+<img src="src/Emutastic/Assets/banners%20and%20icons/emutv_logo.png" width="280" alt="EmuTV"/>
+
+A full controller-driven, big-screen couch interface — browse and launch your entire library from the
+sofa without touching a keyboard or mouse. A 1:1 port of the Windows/Linux living-room mode, rebuilt
+natively for macOS.
+
+- **Controller-first fullscreen UI** — a themed system carousel and game lists you drive entirely from
+  the gamepad.
+- **ES-DE theme engine** — renders EmulationStation Desktop Edition themes, with a built-in default plus
+  in-app theme browsing, downloading, and importing.
+- **Seamless in-window game launches (a macOS-native solution)** — games render *inside* the EmuTV window
+  through a shared-surface compositor, so there's no second window, no focus handoff, and no Dock or
+  menu-bar flash: it stays fullscreen from launch to quit and drops you straight back to the couch shell.
+  GL and 3D/Vulkan cores (N64, GameCube, PSP, …) both work here.
+- **SteamGridDB artwork** and an **animated TV preview** round out the presentation.
+
+**Getting in:** hold **L2 + R2 + L3 + R3** (both triggers + both sticks clicked) for ~2 seconds from the
+library, or press **F9**. Quit a game back to the couch with the same chord.
+
+**In-game controller combos:** save state **L3 + R2** · load latest state **R3 + L2** · swap disc
+**L3 + Start** — all rebindable per system under **Preferences → Controls**.
 
 ---
 
