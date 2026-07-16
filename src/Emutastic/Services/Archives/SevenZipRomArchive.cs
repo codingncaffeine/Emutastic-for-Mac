@@ -34,6 +34,7 @@ namespace Emutastic.Services.Archives
         private sealed class Entry : IRomArchiveEntry
         {
             private readonly IArchiveEntry _e;
+            private byte[]? _buffered;
             public Entry(IArchiveEntry e) { _e = e; }
 
             public string Key         => _e.Key ?? "";
@@ -42,19 +43,25 @@ namespace Emutastic.Services.Archives
             public long   Size        => _e.Size <= 0 ? -1 : _e.Size;
             public bool   IsDirectory => _e.IsDirectory;
 
-            // SharpCompress's per-entry stream is forward-only and single-pass; buffer small
-            // entries (BIOS, manifests) into memory so callers can read repeatedly. Large
-            // entries should use ExtractTo to stream straight to disk.
+            // SharpCompress's per-entry stream is forward-only and single-pass — and for some
+            // formats (gz) it can be opened only ONCE per entry (the second open throws
+            // ObjectDisposedException). Cache the bytes on first read so callers can read
+            // repeatedly (hash, then content-sniff, then copy), as this adapter promises.
+            // Large entries should use ExtractTo to stream straight to disk.
             public Stream OpenEntryStream()
             {
-                var ms = new MemoryStream();
-                using (var s = _e.OpenEntryStream()) s.CopyTo(ms);
-                ms.Position = 0;
-                return ms;
+                if (_buffered == null)
+                {
+                    var ms = new MemoryStream();
+                    using (var s = _e.OpenEntryStream()) s.CopyTo(ms);
+                    _buffered = ms.ToArray();
+                }
+                return new MemoryStream(_buffered, writable: false);
             }
 
             public void ExtractTo(Stream destination)
             {
+                if (_buffered != null) { destination.Write(_buffered); return; }
                 using var s = _e.OpenEntryStream();
                 s.CopyTo(destination);
             }

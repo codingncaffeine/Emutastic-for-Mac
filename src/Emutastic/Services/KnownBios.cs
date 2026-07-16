@@ -100,8 +100,11 @@ namespace Emutastic.Services
 
             // GameCube IPL dumps: identify by content (exact 2 MB + plaintext
             // copyright header) so revisions missing from the hash table still
-            // route to the right region folder regardless of filename.
-            if (size == GcIplSize && openStream != null)
+            // route to the right region folder regardless of filename. Size -1
+            // (unknown — some archive formats hide entry sizes) is let through:
+            // the 256-byte header can't false-positive, and strict callers
+            // re-gate on the real length.
+            if ((size == GcIplSize || size < 0) && openStream != null)
             {
                 string? gcRegion = SniffGcIplRegion(openStream);
                 if (gcRegion != null)

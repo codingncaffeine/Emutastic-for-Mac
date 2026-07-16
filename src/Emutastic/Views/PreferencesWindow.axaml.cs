@@ -1650,21 +1650,37 @@ public partial class PreferencesWindow : Window
     // hashing would drag the scan out. Drag-drop remains the path for those.
     private const long ArchiveSweepMaxBytes = 64 * 1024 * 1024;
 
+    // Beyond upstream (depth 3): BIOS packs are routinely filed away several
+    // levels deep (Roms/GameCube/bios/packs/ntsc/1.0/…), so walk deeper, with a
+    // total-directory cap so pathological trees (symlink cycles, giant shared
+    // libraries) keep the scan bounded.
+    private const int SweepMaxDepth = 8;
+    private const int SweepMaxDirs = 1024;
+
+    // Every archive format RomArchive can open (zip via the BCL; the rest via
+    // SharpCompress) — shared by the sweep and the drag-drop importer.
+    private static readonly HashSet<string> BiosArchiveExts = new(StringComparer.OrdinalIgnoreCase)
+        { ".zip", ".7z", ".rar", ".tar", ".gz", ".tgz" };
+
     // Archives that yielded no imports, keyed by path|size|mtime — skipped on
     // later scans this session so a settled library keeps rescans metadata-free.
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _archiveSweepNoHit = new();
 
     // Recognize-and-import sweep over the ROM directories (see call site in
-    // BiosScan). Each ROM base dir is walked up to three subfolder levels, so
-    // BIOS packs nested a few folders deep (e.g. Roms/Gamecube/BIOS/USA/IPL.bin)
+    // BiosScan). Each ROM base dir is walked up to SweepMaxDepth subfolder
+    // levels, so BIOS packs nested deep (e.g. Roms/Gamecube/BIOS/USA/IPL.bin)
     // are still found. Identification is KnownBios.MatchKnownBios — hashing is
     // only attempted on files whose size exactly matches a known dump, so
     // multi-GB ROMs are never read.
     //
-    // Beyond upstream: archives (.zip/.7z/.rar) up to
+    // Beyond upstream: archives (any BiosArchiveExts format) up to
     // ArchiveSweepMaxBytes are also opened, metadata first — an inner entry is
     // only decompressed when its exact uncompressed size or leaf name matches a
-    // still-missing catalog entry (a rar'd GameCube IPL, a Saturn BIOS zip…).
+    // still-missing catalog entry (a rar'd GameCube IPL, a Saturn BIOS zip…),
+    // or when the format hides sizes (gz) — then a capped trial-decompress
+    // re-gates on the real length. The System folder itself is swept too, so a
+    // dump or archive parked there under any name/subfolder (incl. Dolphin's
+    // native dolphin-emu/Sys/GC layout) is normalized into the canonical layout.
     private static void AutoImportRomDirBios(IEnumerable<string> baseRomDirs, string sysDir)
     {
         // Candidate gates are built from entries whose System-folder file is
@@ -1677,34 +1693,30 @@ public partial class PreferencesWindow : Window
 
         var knownSizes = missing.Where(b => b.ExpectedSize > 0).Select(b => b.ExpectedSize).ToHashSet();
         var knownNames = missing.Select(b => System.IO.Path.GetFileName(b.Filename)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        long maxExpected = missing.Max(b => b.ExpectedSize); // cap for unknown-size trial reads
 
-        string sysPrefix;
-        try
-        {
-            sysPrefix = System.IO.Path.GetFullPath(sysDir)
-                .TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
-        }
-        catch { return; }
-
+        // Collect candidates first, import after: the System folder is a sweep
+        // source AND the import destination, so never write into a tree that is
+        // still being enumerated.
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var candidates = new List<System.IO.FileInfo>();
+        Walk(sysDir, SweepMaxDepth);
         foreach (var root in baseRomDirs)
-            Walk(root, 3);
+            Walk(root, SweepMaxDepth);
+        foreach (var fi in candidates) Consider(fi);
 
         void Walk(string dir, int remainingDepth)
         {
             string full;
             try { full = System.IO.Path.GetFullPath(dir); } catch { return; }
-            if (!visited.Add(full)) return;
-            // Never treat the System folder itself as an import source, and skip
-            // dot-folders (.Trashes on removable drives holds deleted copies).
-            if ((full.TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar)
-                    .StartsWith(sysPrefix, StringComparison.OrdinalIgnoreCase)) return;
+            if (!visited.Add(full) || visited.Count > SweepMaxDirs) return;
+            // Skip dot-folders (.Trashes on removable drives holds deleted copies).
             if (System.IO.Path.GetFileName(full).StartsWith('.')) return;
 
             IEnumerable<System.IO.FileInfo> files;
             try { files = new System.IO.DirectoryInfo(full).EnumerateFiles(); }
             catch { return; }
-            foreach (var fi in files) Consider(fi);
+            foreach (var fi in files) candidates.Add(fi);
 
             if (remainingDepth <= 0) return;
             IEnumerable<string> subs;
@@ -1717,6 +1729,7 @@ public partial class PreferencesWindow : Window
         {
             long len;
             try { len = fi.Length; } catch { return; }
+            if (fi.Name.EndsWith(".importing", StringComparison.OrdinalIgnoreCase)) return; // our own temp files
             bool sizeCandidate = knownSizes.Contains(len);
             bool nameCandidate = knownNames.Contains(fi.Name);
             if (sizeCandidate || nameCandidate)
@@ -1737,36 +1750,67 @@ public partial class PreferencesWindow : Window
 
         void ConsiderArchive(System.IO.FileInfo fi, long len)
         {
-            string ext = fi.Extension;
-            bool isArchive = ext.Equals(".zip", StringComparison.OrdinalIgnoreCase)
-                          || ext.Equals(".7z", StringComparison.OrdinalIgnoreCase)
-                          || ext.Equals(".rar", StringComparison.OrdinalIgnoreCase);
-            if (!isArchive || len <= 0 || len > ArchiveSweepMaxBytes) return;
+            if (!BiosArchiveExts.Contains(fi.Extension) || len <= 0 || len > ArchiveSweepMaxBytes) return;
 
             string memoKey = $"{fi.FullName}|{len}|{fi.LastWriteTimeUtc.Ticks}";
             if (_archiveSweepNoHit.ContainsKey(memoKey)) return;
 
             bool anyImport = false;
+            int trialsLeft = 8; // unknown-size decompress budget per archive
             try
             {
                 using var archive = Services.Archives.RomArchive.Open(fi.FullName);
                 foreach (var entry in archive.Entries)
                 {
-                    if (entry.IsDirectory || string.IsNullOrEmpty(entry.Key)) continue;
-                    string entryName = System.IO.Path.GetFileName(entry.Key);
+                    if (entry.IsDirectory) continue;
+                    string entryName = System.IO.Path.GetFileName(entry.Key ?? "");
+                    // Single-stream formats (gz) often store no inner name — derive
+                    // one from the archive's own filename so the entry isn't skipped
+                    // (identity comes from size/hash/content, not the name).
+                    if (string.IsNullOrEmpty(entryName))
+                        entryName = System.IO.Path.GetFileNameWithoutExtension(fi.Name);
                     if (string.IsNullOrEmpty(entryName)) continue;
-                    bool eSize = knownSizes.Contains(entry.Size);
+                    long eLen = entry.Size;
+                    bool eSize = eLen > 0 && knownSizes.Contains(eLen);
                     bool eName = knownNames.Contains(entryName);
+                    // Formats that don't expose an uncompressed size (gz reports -1):
+                    // trial-decompress capped at the largest missing dump size and
+                    // re-gate on the real length — a wrong-size stream can never import.
+                    byte[]? buffered = null;
+                    if (eLen < 0 && maxExpected > 0 && trialsLeft > 0)
+                    {
+                        trialsLeft--;
+                        try
+                        {
+                            using var es = entry.OpenEntryStream();
+                            using var ms = new System.IO.MemoryStream();
+                            var chunk = new byte[81920];
+                            int n; long total = 0;
+                            while ((n = es.Read(chunk, 0, chunk.Length)) > 0)
+                            {
+                                total += n;
+                                if (total > maxExpected) break; // bigger than any missing dump
+                                ms.Write(chunk, 0, n);
+                            }
+                            if (total <= maxExpected) { buffered = ms.ToArray(); eLen = buffered.Length; }
+                        }
+                        catch { }
+                        eSize = eLen > 0 && knownSizes.Contains(eLen);
+                    }
+                    if (eLen < 0) continue; // size unverifiable — the sweep stays strict
                     if (!eSize && !eName) continue;
 
+                    Func<System.IO.Stream> open = buffered != null
+                        ? () => new System.IO.MemoryStream(buffered)
+                        : entry.OpenEntryStream;
                     string? md5 = null;
                     if (eSize)
                     {
-                        try { using var ms = entry.OpenEntryStream(); using var h = System.Security.Cryptography.MD5.Create(); md5 = Convert.ToHexString(h.ComputeHash(ms)).ToLowerInvariant(); } catch { }
+                        try { using var ms = open(); using var h = System.Security.Cryptography.MD5.Create(); md5 = Convert.ToHexString(h.ComputeHash(ms)).ToLowerInvariant(); } catch { }
                     }
-                    var match = Services.KnownBios.MatchKnownBios(entryName, entry.Size, md5, () => entry.OpenEntryStream());
-                    if (match == null || (match.ExpectedSize > 0 && match.ExpectedSize != entry.Size)) continue;
-                    if (ImportTo(match, () => entry.OpenEntryStream(), $"{fi.FullName}:{entry.Key}")) anyImport = true;
+                    var match = Services.KnownBios.MatchKnownBios(entryName, eLen, md5, open);
+                    if (match == null || (match.ExpectedSize > 0 && match.ExpectedSize != eLen)) continue;
+                    if (ImportTo(match, open, $"{fi.FullName}:{entry.Key}")) anyImport = true;
                 }
             }
             catch { /* unreadable/unsupported archive — memoize and move on */ }
@@ -2031,7 +2075,7 @@ public partial class PreferencesWindow : Window
         try { size = new System.IO.FileInfo(src).Length; } catch { skipped++; return; }
         string srcName = System.IO.Path.GetFileName(src);
         string srcExt = System.IO.Path.GetExtension(srcName);
-        bool isArchive = srcExt.Equals(".zip", StringComparison.OrdinalIgnoreCase) || srcExt.Equals(".7z", StringComparison.OrdinalIgnoreCase) || srcExt.Equals(".rar", StringComparison.OrdinalIgnoreCase);
+        bool isArchive = BiosArchiveExts.Contains(srcExt);
         bool anyHashed = Services.KnownBios.All.Any(b => b.Md5 != null);
 
         if (isArchive)
@@ -2042,8 +2086,12 @@ public partial class PreferencesWindow : Window
                 using var archive = Services.Archives.RomArchive.Open(src);
                 foreach (var entry in archive.Entries)
                 {
-                    if (entry.IsDirectory || string.IsNullOrEmpty(entry.Key)) continue;
-                    string entryName = System.IO.Path.GetFileName(entry.Key);
+                    if (entry.IsDirectory) continue;
+                    string entryName = System.IO.Path.GetFileName(entry.Key ?? "");
+                    // gz single-stream entries may store no inner name — derive one
+                    // from the dropped file's own name (see the sweep's same rule).
+                    if (string.IsNullOrEmpty(entryName))
+                        entryName = System.IO.Path.GetFileNameWithoutExtension(srcName);
                     if (string.IsNullOrEmpty(entryName)) continue;
                     string? entryMd5 = null;
                     if (anyHashed)
