@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 
 namespace Emutastic.Services.ConsoleHandlers
@@ -204,5 +205,47 @@ namespace Emutastic.Services.ConsoleHandlers
         // return the default there.
         public override string ResolveSystemDirectory(string defaultDir, string coreDllDir)
             => OperatingSystem.IsMacOS() ? defaultDir : coreDllDir;
+
+        // GameCube IPL (BIOS) — optional. Dolphin resolves its User directory as
+        // <saveDir>/User (Saves/GameCube/User here) and checks
+        // User/GC/<REGION>/IPL.bin BEFORE the bundled dolphin-emu/Sys/GC/<REGION>/
+        // IPL.bin under the system dir above, so mirroring the dumps the user
+        // placed in the System folder (Preferences → System Files) into the save
+        // tree makes the core pick them up without touching the dolphin-emu/Sys
+        // tree (which Sys/core updates may replace). With a dump present Dolphin
+        // loads the official IPL fonts (fixes missing text in e.g. Star Fox
+        // Assault) even while dolphin_skip_gc_bios is enabled; disabling that
+        // option boots the real BIOS menu when the game-region dump exists (the
+        // core gracefully re-enables skip when it doesn't). Copies are refreshed
+        // when the source changes and never deleted — a user-managed file in the
+        // save tree stays.
+        public override void PrepareSaveDirectory(string saveDir)
+        {
+            string systemDir = AppPaths.GetFolder("System");
+            foreach (string region in new[] { "USA", "JAP", "EUR" })
+            {
+                try
+                {
+                    string src = Path.Combine(systemDir, "GC", region, "IPL.bin");
+                    if (!File.Exists(src)) continue;
+
+                    string destDir = Path.Combine(saveDir, "User", "GC", region);
+                    string dest = Path.Combine(destDir, "IPL.bin");
+                    var srcInfo = new FileInfo(src);
+                    var destInfo = new FileInfo(dest);
+                    if (destInfo.Exists && destInfo.Length == srcInfo.Length &&
+                        destInfo.LastWriteTimeUtc >= srcInfo.LastWriteTimeUtc)
+                        continue;
+
+                    Directory.CreateDirectory(destDir);
+                    File.Copy(src, dest, overwrite: true);
+                    Trace.WriteLine($"[GameCubeHandler] Synced GC IPL ({region}) → {dest}");
+                }
+                catch (Exception ex)
+                {
+                    Trace.WriteLine($"[GameCubeHandler] GC IPL sync ({region}) failed: {ex.Message}");
+                }
+            }
+        }
     }
 }
