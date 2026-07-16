@@ -118,8 +118,13 @@ namespace Emutastic.Services
                 if (!Version.TryParse(tag.TrimStart('v', 'V').Trim(), out var remote)) return null;
                 var local = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
                 if (local == null) return null;
-                if (new Version(remote.Major, remote.Minor, remote.Build)
-                        .CompareTo(new Version(local.Major, local.Minor, local.Build)) <= 0) return null;
+                // Compare the FULL version: a 4-part hotfix tag (v0.7.9.1) must beat its
+                // 3-part base (0.7.9). Version leaves absent parts at -1 — normalize them
+                // to 0 so 0.7.9 == 0.7.9.0 < 0.7.9.1. (Upstream truncates to
+                // Major.Minor.Build, which hides 4th-part releases from the updater.)
+                static Version Norm(Version v) =>
+                    new(v.Major, v.Minor, Math.Max(v.Build, 0), Math.Max(v.Revision, 0));
+                if (Norm(remote).CompareTo(Norm(local)) <= 0) return null;
 
                 var assets = new System.Collections.Generic.List<ReleaseAsset>();
                 if (obj["assets"] is Newtonsoft.Json.Linq.JArray arr)

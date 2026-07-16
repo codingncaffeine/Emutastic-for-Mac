@@ -116,12 +116,18 @@ Emutastic is **self-signed**, not notarized through Apple's paid Developer Progr
 non-profit app, so paying Apple's yearly fee isn't worth it. Because of that, macOS shows **two
 one-time prompts**. Both are expected and safe to approve:
 
-**1 — "Apple cannot check it for malicious software" (first launch).**
-Gatekeeper blocks the first *double-click* of any app that isn't notarized. To get past it, just open
-it a different way once:
+**1 — "Apple could not verify Emutastic is free of malware" (first launch).**
+Gatekeeper blocks the first launch of any app that isn't notarized. Because Emutastic carries a
+real (self-signed) signature you'll get this recoverable prompt — never the scary *"app is damaged
+and can't be opened"* message that unsigned apps produce. Get past it once:
 
-- **Right-click** (or Control-click) **Emutastic.app → Open**, then click **Open** in the dialog.
-- *(Terminal alternative: `xattr -dr com.apple.quarantine /Applications/Emutastic.app`)*
+- **macOS 15 Sequoia / 26 Tahoe:** double-click the app and click **Done** (not *Move to Trash*),
+  then open **System Settings → Privacy & Security**, scroll down to the Security section, and click
+  **Open Anyway** next to the Emutastic message. Confirm once more and you're in.
+- **macOS 14 Sonoma and earlier:** **right-click** (or Control-click) **Emutastic.app → Open**, then
+  click **Open** in the dialog.
+- *(Terminal alternative for any macOS version, skips every dialog:
+  `xattr -dr com.apple.quarantine /Applications/Emutastic.app`)*
 
 After that first time, it opens normally on every launch.
 
