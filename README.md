@@ -307,7 +307,8 @@ status bar shows each sync's progress.
   repository (on a Mac, the Local Hostname from System Settings → Sharing) and never reads another
   machine's saves, so a new or reinstalled machine can't overwrite progress made elsewhere. Signing in
   again on a reinstalled Mac with the same name restores its backup.
-- **Saves only** — HD texture packs, shader caches and save states stay out of the backup.
+- **Saves only** — HD texture packs, BIOS and console system files, shader caches and save states
+  stay out of the backup.
 - **Optional AES-256-GCM encryption** with a passphrase you choose; restoring needs the same passphrase.
 - **Sign-in kept in your Keychain** — the GitHub token and the passphrase live in your login Keychain,
   not in `config.json`.
