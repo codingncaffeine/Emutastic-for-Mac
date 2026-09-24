@@ -7,7 +7,7 @@ namespace Emutastic.Services
     /// <summary>
     /// Builds the User-Agent header value Emutastic uses when calling
     /// RetroAchievements servers (port of upstream EmutasticUserAgent;
-    /// ResolveOs rewritten for Linux).
+    /// ResolveOs rewritten for Linux and macOS).
     ///
     /// RA's hardcore-compliance policy keys two server-side decisions on this
     /// header: whether the unlock request is hardcore-eligible at all (must be
@@ -91,6 +91,17 @@ namespace Emutastic.Services
         private static string ResolveOs()
         {
             if (_os != null) return _os;
+            // macOS has no /etc/os-release; OSVersion is the marketing version
+            // there (e.g. 26.2), so this reads "macOS 26.2", not "Linux 26.2".
+            if (OperatingSystem.IsMacOS())
+            {
+                try
+                {
+                    var mv = Environment.OSVersion.Version;
+                    return _os = $"macOS {mv.Major}.{mv.Minor}";
+                }
+                catch { return _os = "macOS"; }
+            }
             // RA's UA validator parses the OS bracket; "<Name> <Version>" from
             // os-release gives e.g. "Debian 13" (the Linux analogue of
             // upstream's "Windows 11"). Fall back to a kernel-versioned form.
