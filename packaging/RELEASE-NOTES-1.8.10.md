@@ -39,6 +39,8 @@
   RetroAchievements switched off nearly every achievement at load — Rayman had 0 of 59 active. They
   load and unlock normally now (57 of 59 for Rayman; the other two are unsupported by RetroAchievements
   itself).
+- **EmuTV games showing upside down.** Games launched from EmuTV could appear upside down, on-screen
+  messages included. They display the right way up now.
 - **Reset now resets your achievements too.** Resetting a game from the in-game cog only reset the
   console; hit counts and leaderboard attempts from before the reset carried over. RetroAchievements
   requires the runtime to reset with the game, and it now does.
