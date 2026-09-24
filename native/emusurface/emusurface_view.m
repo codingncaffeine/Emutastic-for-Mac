@@ -17,6 +17,35 @@
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
 #import <IOSurface/IOSurface.h>
+#import <objc/runtime.h>
+
+// Orientation: the game renders GL bottom-up, so the picture must be flipped once relative to the WINDOW.
+// The flip used to be set ONCE, at view creation — before NativeControlHost inserted the view into the
+// window. In EmuTV's fullscreen window the view joins Avalonia's own layer tree (under geometryFlipped
+// ancestors), and the picture came up upside down, OSD included; the windowed test harness never showed
+// it. So the WANTED flip is stored on the layer and the transform is re-derived and re-applied whenever
+// the view is attached, laid out, or bound, accounting for any flip the ancestors impose
+// (contentsAreFlipped = parity of geometryFlipped up the tree). Verified by the user in EmuTV.
+static void emusurf_apply_orientation(CALayer *layer) {
+    if (!layer) return;
+    BOOL want     = [[layer valueForKey:@"emuWantFlip"] boolValue];
+    BOOL implicit = [layer contentsAreFlipped];
+    BOOL apply    = want != implicit;
+    CGAffineTransform t = apply ? CGAffineTransformMakeScale(1, -1) : CGAffineTransformIdentity;
+    if (!CGAffineTransformEqualToTransform(layer.affineTransform, t)) {
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        layer.affineTransform = t;
+        [CATransaction commit];
+    }
+    NSNumber *last = [layer valueForKey:@"emuOrientLogged"];
+    int state = (want ? 4 : 0) | (implicit ? 2 : 0) | (apply ? 1 : 0);
+    if (!last || last.intValue != state) {
+        [layer setValue:@(state) forKey:@"emuOrientLogged"];
+        fprintf(stderr, "[emusurf] orientation want=%d ancestorsFlipped=%d -> transform=%s\n",
+                want, implicit, apply ? "flipY" : "identity");
+    }
+}
 
 // A layer-backed host view that keeps an owned content sublayer sized to its bounds. We control the
 // sublayer's transform (the flip) ourselves — unlike the backing layer, AppKit leaves sublayers alone.
@@ -36,7 +65,8 @@
     _content.position = CGPointMake(b.size.width / 2, b.size.height / 2);   // anchorPoint 0.5,0.5 → center
     [CATransaction commit];                          // NOTE: set bounds+position, never `frame`, so the
 }                                                    // sublayer's flip transform isn't disturbed.
-- (void)layout            { [super layout]; [self resizeContent]; }
+- (void)layout            { [super layout]; [self resizeContent]; emusurf_apply_orientation(_content); }
+- (void)viewDidMoveToWindow { [super viewDidMoveToWindow]; emusurf_apply_orientation(_content); }
 - (void)setFrameSize:(NSSize)s { [super setFrameSize:s]; [self resizeContent]; }
 @end
 
@@ -88,12 +118,26 @@ long emusurf_activation_policy(void) {
     return (long)[[NSApplication sharedApplication] activationPolicy];
 }
 
-// Flip the content sublayer vertically (GL renders bottom-up; a CALayer treats contents top-down). Applied
-// to the sublayer's affineTransform — which is ours to control, unlike the AppKit-managed backing layer.
+// Request an upright picture for bottom-up (GL) content: flip=1. The transform actually applied to the
+// sublayer (ours to control, unlike the AppKit-managed backing layer) accounts for any flip the host
+// hierarchy already imposes — see emusurf_apply_orientation.
 void emusurf_layer_set_flip(void *layer, int flip) {
     if (!layer) return;
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    ((CALayer *)layer).affineTransform = flip ? CGAffineTransformMakeScale(1, -1) : CGAffineTransformIdentity;
-    [CATransaction commit];
+    [(CALayer *)layer setValue:@(flip != 0) forKey:@"emuWantFlip"];
+    emusurf_apply_orientation((CALayer *)layer);
+}
+
+// Diagnostics: re-evaluate the orientation (the view may have been re-parented since the last layout)
+// and describe the decision plus the layer chain up to the root, for emulator.log. Returns bytes written.
+int emusurf_layer_orientation_report(void *layer, char *buf, int len) {
+    if (!layer || !buf || len <= 0) return 0;
+    CALayer *l0 = (CALayer *)layer;
+    emusurf_apply_orientation(l0);
+    int n = snprintf(buf, len, "want=%d ancestorsFlipped=%d transform=%s chain=",
+                     [[l0 valueForKey:@"emuWantFlip"] boolValue], [l0 contentsAreFlipped],
+                     l0.affineTransform.d < 0 ? "flipY" : "identity");
+    for (CALayer *l = l0; l && n < len; l = l.superlayer)
+        n += snprintf(buf + n, len - n, "%s%s(gf=%d m22=%.0f)", l == l0 ? "" : " > ",
+                      object_getClassName(l), l.geometryFlipped, l.transform.m22);
+    return n < len ? n : len - 1;
 }

@@ -174,7 +174,7 @@
        from native/emusurface/. -->
   <Target Name="BuildEmuSurface" BeforeTargets="Build"
           Condition="$([MSBuild]::IsOSPlatform('OSX'))"
-          Inputs="$(MSBuildProjectDirectory)/../../native/emusurface/emusurface.c;$(MSBuildProjectDirectory)/../../native/emusurface/build.sh"
+          Inputs="$(MSBuildProjectDirectory)/../../native/emusurface/emusurface.c;$(MSBuildProjectDirectory)/../../native/emusurface/emusurface_view.m;$(MSBuildProjectDirectory)/../../native/emusurface/build.sh"
           Outputs="$(MSBuildProjectDirectory)/../../native/emusurface/libemusurface.dylib">
     <Exec Command="bash &quot;$(MSBuildProjectDirectory)/../../native/emusurface/build.sh&quot;" />
   </Target>

@@ -37,8 +37,9 @@ namespace Emutastic.Views
             {
                 _view = IOSurfaceInterop.HostView.CreateView();
                 _layer = IOSurfaceInterop.HostView.ViewLayer(_view);
-                // The game-host renders into the IOSurface with GL's bottom-left origin, so the layer must
-                // flip vertically to show it upright (confirmed: without this the picture is upside down).
+                // The game-host renders into the IOSurface with GL's bottom-left origin, so the picture must be
+                // flipped once relative to the window. The native side decides whether that takes a transform,
+                // accounting for flips the host layer tree already applies (emusurf_apply_orientation).
                 if (_layer != IntPtr.Zero) IOSurfaceInterop.HostView.SetFlip(_layer, 1);
                 if (_view != IntPtr.Zero) return new PlatformHandle(_view, "NSView");
             }
@@ -68,6 +69,9 @@ namespace Emutastic.Views
             _control = controlId != 0 ? IOSurfaceInterop.IOSurface.Lookup(controlId) : null;
             _controlBase = _control != null ? _control.Lock(true) : IntPtr.Zero;   // stable mapped base for polling
             _lastSeq = -1; _curSlot = -1;
+            // Which way up the picture is depends on the host layer tree (see emusurface_view.m); record the
+            // decision so an upside-down report can be diagnosed from emulator.log.
+            System.Diagnostics.Trace.WriteLine($"[GameSurface] bind {width}x{height} orientation: {IOSurfaceInterop.HostView.DescribeOrientation(_layer)}");
 
             // We (the active parent) read the controller and forward it to the headless child.
             _forwarder = ControllerForwarder.Start(inputId);

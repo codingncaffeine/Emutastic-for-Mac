@@ -129,6 +129,19 @@ namespace Emutastic.Platform
             [DllImport(Lib, EntryPoint = "emusurf_view_destroy")]     public static extern void   DestroyView(IntPtr view);
             [DllImport(Lib, EntryPoint = "emusurf_layer_set_surface")]public static extern void   SetSurface(IntPtr layer, IntPtr surface);
             [DllImport(Lib, EntryPoint = "emusurf_layer_set_flip")]   public static extern void   SetFlip(IntPtr layer, int flip);
+            [DllImport(Lib, EntryPoint = "emusurf_layer_orientation_report")] private static extern int OrientationReport(IntPtr layer, byte[] buf, int len);
+
+            /// <summary>The orientation decision and the host layer chain, for emulator.log. Main thread.</summary>
+            public static string DescribeOrientation(IntPtr layer)
+            {
+                try
+                {
+                    var buf = new byte[2048];
+                    int n = OrientationReport(layer, buf, buf.Length);
+                    return System.Text.Encoding.UTF8.GetString(buf, 0, Math.Max(0, n));
+                }
+                catch (Exception ex) { return $"unavailable ({ex.GetType().Name})"; }
+            }
         }
 
         /// <summary>Make THIS process a background/accessory app (no Dock, no menu bar, can't activate,
