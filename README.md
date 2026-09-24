@@ -302,7 +302,8 @@ Sync battery saves and your library database across machines using your GitHub a
 one click in **Preferences → Backups** (device flow, no password stored) and a private repo is created
 under your account. The same repository serves the Windows, Linux, and macOS apps: save on one machine,
 pick up on another (battery saves are keyed by ROM hash, so each install must import the same ROM
-files). Optional **AES-256-GCM encryption** with a passphrase you choose. See the
+files). Optional **AES-256-GCM encryption** with a passphrase you choose. Your GitHub sign-in and the
+passphrase are kept in your login **Keychain**, not in `config.json`. See the
 [Cloud Sync](https://github.com/codingncaffeine/Emutastic/wiki/Cloud-Sync) wiki page for details.
 
 </details>
