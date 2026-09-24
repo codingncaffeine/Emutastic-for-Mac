@@ -17,7 +17,9 @@ namespace Emutastic.Platform
     /// <see cref="Device.Id"/> is <c>"product name#occurrence"</c> — the occurrence disambiguates
     /// two identical pads by SDL enumeration order ("Retrolink SNES controller#0" / "#1").
     /// That is the same key upstream Windows persists in <c>InputConfiguration.ControllerDeviceId</c>,
-    /// so a config file moves between the two apps. SDL's joystick GUID is NOT used: it encodes
+    /// so a config file moves between the two apps. (macOS keys on USB vendor:product instead of the
+    /// name — "usb:045e:02e0#0" — because its two processes name one pad differently; see
+    /// IdentityKey.) SDL's joystick GUID is NOT used: it encodes
     /// vendor/product and is therefore identical for two units of the same model, which is
     /// exactly the case that needs telling apart. Unplugging the first of two identical pads
     /// renumbers the second — inherent to any index scheme, and what every other frontend does.
@@ -66,6 +68,8 @@ namespace Emutastic.Platform
         [DllImport("SDL3")] [return: MarshalAs(UnmanagedType.I1)] static extern bool SDL_IsGamepad(uint instance_id);
         [DllImport("SDL3")] static extern IntPtr SDL_GetGamepadNameForID(uint instance_id);
         [DllImport("SDL3")] static extern IntPtr SDL_GetJoystickNameForID(uint instance_id);
+        [DllImport("SDL3")] static extern ushort SDL_GetJoystickVendorForID(uint instance_id);
+        [DllImport("SDL3")] static extern ushort SDL_GetJoystickProductForID(uint instance_id);
         [DllImport("SDL3")] static extern IntPtr SDL_OpenJoystick(uint instance_id);
         [DllImport("SDL3")] static extern void   SDL_CloseJoystick(IntPtr joystick);
         [DllImport("SDL3")] static extern IntPtr SDL_OpenGamepad(uint instance_id);
@@ -139,6 +143,22 @@ namespace Emutastic.Platform
         public static string MakeId(string name, int occurrence) => $"{name}#{occurrence}";
 
         /// <summary>
+        /// What <see cref="Device.Id"/> is built from. The product name everywhere except macOS, where
+        /// the library process enumerates with SDL's HIDAPI driver off (ControllerManager's beachball
+        /// fix) and the game host with it on, and the two drivers name one pad differently — an Xbox
+        /// One S pad is "Xbox One Wireless Controller" in one and "Xbox One S Controller" in the other,
+        /// so a binding saved in Preferences never matched in the game. Both report the same USB
+        /// vendor:product (045e:02e0 for that pad), so on macOS that is the key: "usb:045e:02e0#0".
+        /// Devices reporting no ids (virtual joysticks) keep the name.
+        /// </summary>
+        private static string IdentityKey(uint instanceId, string name)
+        {
+            if (!OperatingSystem.IsMacOS()) return name;
+            ushort vid = SDL_GetJoystickVendorForID(instanceId), pid = SDL_GetJoystickProductForID(instanceId);
+            return vid == 0 && pid == 0 ? name : $"usb:{vid:x4}:{pid:x4}";
+        }
+
+        /// <summary>
         /// Enumerates every joystick, opens new ones, closes departed ones, and re-labels ids so the
         /// occurrence numbers stay dense. Returns true when the device set changed. A device that is
         /// merely re-labelled (its "#n" shifted because an identical pad in front of it left) keeps
@@ -147,7 +167,7 @@ namespace Emutastic.Platform
         /// </summary>
         public bool Reconcile(List<Device>? added = null, List<Device>? removed = null)
         {
-            var present = new List<(uint InstanceId, string Name)>();
+            var present = new List<(uint InstanceId, string Name, string Key)>();
             IntPtr arr = SDL_GetJoysticks(out int count);
             try
             {
@@ -155,7 +175,8 @@ namespace Emutastic.Platform
                 {
                     uint id = (uint)Marshal.ReadInt32(arr, i * 4);
                     IntPtr namePtr = SDL_IsGamepad(id) ? SDL_GetGamepadNameForID(id) : SDL_GetJoystickNameForID(id);
-                    present.Add((id, Marshal.PtrToStringUTF8(namePtr) ?? $"Controller {i + 1}"));
+                    string name = Marshal.PtrToStringUTF8(namePtr) ?? $"Controller {i + 1}";
+                    present.Add((id, name, IdentityKey(id, name)));
                 }
             }
             finally { if (arr != IntPtr.Zero) SDL_free(arr); }
@@ -180,7 +201,7 @@ namespace Emutastic.Platform
             foreach (var d in _devices) byInstance[d.InstanceId] = d;
             var fresh = new List<Device>(present.Count);
             var seen  = new Dictionary<string, int>(StringComparer.Ordinal);
-            foreach (var (instanceId, name) in present)
+            foreach (var (instanceId, name, key) in present)
             {
                 if (!byInstance.TryGetValue(instanceId, out var d))
                 {
@@ -189,9 +210,9 @@ namespace Emutastic.Platform
                     added?.Add(d);
                     changed = true;
                 }
-                seen.TryGetValue(name, out int n);
-                seen[name] = n + 1;
-                string newId = MakeId(name, n);
+                seen.TryGetValue(key, out int n);
+                seen[key] = n + 1;
+                string newId = MakeId(key, n);
                 if (d.Id != newId) { d.Id = newId; d.DisplayName = n == 0 ? name : $"{name} ({n + 1})"; changed = true; }
                 fresh.Add(d);
             }

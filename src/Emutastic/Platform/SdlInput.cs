@@ -332,12 +332,12 @@ namespace Emutastic.Platform
             var before   = new SdlDeviceSet.Device?[4];
             for (int i = 0; i < 4; i++) before[i] = _ports[i].Device;
 
-            // macOS: the library process enumerates with SDL's HIDAPI driver off (ControllerManager's
-            // beachball fix) and this game host with it on, so one pad can carry a different SDL name
-            // in each ("DualSense Wireless Controller" vs "PS5 Controller") and a binding saved in
-            // Preferences may name a device this process never sees. Rule 1's "read nothing" would then
-            // leave that player dead for the whole session, so on macOS a binding that matches no
-            // attached device falls back to the unbound rules — the pre-binding behaviour.
+            // macOS backstop: the library process enumerates with SDL's HIDAPI driver off
+            // (ControllerManager's beachball fix) and this game host with it on, and the two drivers
+            // name one pad differently. Ids key on USB vendor:product there (SdlDeviceSet.IdentityKey),
+            // which both drivers agree on for the pads tested; should some pad still differ, rule 1's
+            // "read nothing" would leave that player dead for the whole session, so on macOS a binding
+            // that matches no attached device falls back to the unbound rules — the pre-binding behaviour.
             bool Effective(Port p) => p.BoundId != null && (!OperatingSystem.IsMacOS() || _set.Get(p.BoundId) != null);
 
             // 1. Bound ports claim their device — or read nothing if it is absent.
