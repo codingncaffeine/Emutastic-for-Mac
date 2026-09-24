@@ -298,12 +298,21 @@ for the line-by-line audit.
 <details>
 <summary><strong>Cloud Sync</strong></summary>
 
-Sync battery saves and your library database across machines using your GitHub account — sign in with
-one click in **Preferences → Backups** (device flow, no password stored) and a private repo is created
-under your account. The same repository serves the Windows, Linux, and macOS apps: save on one machine,
-pick up on another (battery saves are keyed by ROM hash, so each install must import the same ROM
-files). Optional **AES-256-GCM encryption** with a passphrase you choose. Your GitHub sign-in and the
-passphrase are kept in your login **Keychain**, not in `config.json`. See the
+Back up this Mac's battery saves, memory cards and game library to a private repository on your GitHub
+account — sign in with one click in **Preferences → Backups** (device flow, no password stored). Saves
+upload when a game session ends (or only on demand with **Sync Now**, if sync is set to manual), and the
+status bar shows each sync's progress.
+
+- **One repository per computer** — every machine backs up to its own `emutastic-saves-<hostname>`
+  repository (on a Mac, the Local Hostname from System Settings → Sharing) and never reads another
+  machine's saves, so a new or reinstalled machine can't overwrite progress made elsewhere. Signing in
+  again on a reinstalled Mac with the same name restores its backup.
+- **Saves only** — HD texture packs, shader caches and save states stay out of the backup.
+- **Optional AES-256-GCM encryption** with a passphrase you choose; restoring needs the same passphrase.
+- **Sign-in kept in your Keychain** — the GitHub token and the passphrase live in your login Keychain,
+  not in `config.json`.
+
+Sync activity is logged to `Logs/cloudsync.log`. See the
 [Cloud Sync](https://github.com/codingncaffeine/Emutastic/wiki/Cloud-Sync) wiki page for details.
 
 </details>
