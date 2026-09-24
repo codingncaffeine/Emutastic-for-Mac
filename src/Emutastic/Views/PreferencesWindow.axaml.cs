@@ -113,6 +113,7 @@ public partial class PreferencesWindow : Window
         WireAbout();
         WireTheme();
         WireLibrary();
+        WireSidebarLayout();
         WireSnaps();
         WireEmuTv();
         WireAchievements();
@@ -702,6 +703,7 @@ public partial class PreferencesWindow : Window
         organize.IsChecked = lib.OrganizeByConsole;
         organize.IsEnabled = lib.CopyToLibrary;
         this.FindControl<TextBlock>("LibraryStatusText")!.Text = "";
+        LoadSidebarLayout();
     }
 
     private async Task BrowseLibraryAsync()

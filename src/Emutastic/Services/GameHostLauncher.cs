@@ -270,6 +270,9 @@ namespace Emutastic.Services
             if (firstChild) { try { OnExternalGameActiveChanged?.Invoke(true); } catch { } }
             if (game != null) _liveHosts[game.Id] = proc;
             if (game != null) { try { OnGameLaunching?.Invoke(game); } catch { } }
+            // Cloud sync: arm the "Every N minutes during play" uploader for this session.
+            // No-op unless the user picked periodic timing.
+            if (game != null) { try { GitHubSyncService.Instance.StartPeriodicSync(game); } catch { } }
             Trace.WriteLine($"[Launcher] game host pid={proc.Id} core={corePath} rom={romPath}");
 
             // Drain the child's stdout continuously (a full pipe would block the child) and act on
@@ -317,6 +320,10 @@ namespace Emutastic.Services
                         // thread here, so the handler (MainWindow) marshals to the UI thread itself.
                         try { OnExternalGameActiveChanged?.Invoke(false); } catch { }
                     }
+                    // Disarm the periodic uploader; the on-close upload below covers this
+                    // session's final state. (A launch always re-arms, so the rare
+                    // two-hosts-at-once case simply tracks the most recent launch.)
+                    try { GitHubSyncService.Instance.StopPeriodicSync(); } catch { }
                 }
 
                 Trace.WriteLine($"[Launcher] game host exited: code={result?.ExitCode}, playSeconds={result?.PlaySeconds}");
