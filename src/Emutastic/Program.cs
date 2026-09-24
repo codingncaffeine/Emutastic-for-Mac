@@ -36,6 +36,12 @@ sealed class Program
             Environment.Exit(Emutastic.Platform.IOSurfaceInterop.SelfTest());
             return;
         }
+        // Headless controller → player routing self-test (SDL3 virtual joysticks, no window, never
+        // touches the user's config): `Emutastic --selftest-input [--portable]`. Exit 0 = all pass.
+        if (args.Length >= 1 && args[0] == "--selftest-input")
+        {
+            Environment.Exit(Emutastic.InputSelfTest.Run());
+        }
         // Separate game process (Branch B): runs the SDL-GL game window with NO Avalonia in this process
         // (Avalonia + SDL-GL in one process hangs after present #1). Exit code propagates to the parent
         // supervisor for crash detection. See docs/gl-present-phase1-host-process-design.md.
