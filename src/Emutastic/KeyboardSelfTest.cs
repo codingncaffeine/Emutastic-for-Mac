@@ -327,7 +327,9 @@ namespace Emutastic
         static void WindowChecks()
         {
             Line("-- SDL game window --");
-            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"))
+            // macOS always has a display (no DISPLAY/WAYLAND_DISPLAY there).
+            if (!OperatingSystem.IsMacOS()
+                && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"))
                 && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY")))
             {
                 Line("  [INFO] no display — the window checks did not run");
