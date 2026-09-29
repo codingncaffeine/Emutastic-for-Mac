@@ -123,6 +123,9 @@ namespace Emutastic.Platform
         [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
         public struct SDL_Rect { public int x, y, w, h; }
         [DllImport(SDL)] [return: MarshalAs(UnmanagedType.I1)] public static extern bool SDL_PollEvent(byte[] ev);   // SDL_Event union; we only drain
+        // The key a physical key types on the current layout, unshifted (Shift+A still gives 'a'): a
+        // key bound by name then matches the key with that label on any layout.
+        [DllImport(SDL)] public static extern uint SDL_GetKeyFromScancode(int scancode, ushort modstate, [MarshalAs(UnmanagedType.I1)] bool keyEvent);
         [DllImport(SDL)] public static extern IntPtr SDL_GetError();
         [DllImport(SDL)] public static extern uint SDL_GetWindowID(IntPtr window);
         // Reach the underlying NSWindow so we can detect/exit macOS NATIVE fullscreen (green button /
