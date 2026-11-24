@@ -1580,7 +1580,7 @@ public partial class PreferencesWindow : Window
         ("Sony",     new[] { "PlayStation" }),   // PS2 unsupported on macOS (no arm64 core)
         ("NEC",      new[] { "TurboGrafx-CD" }),
         ("Arcade",   new[] { "Neo Geo" }),   // NeoCD entries exist for launch pre-flight only (upstream hides them here)
-        ("Other",    new[] { "3DO", "Philips CD-i" }),
+        ("Other",    new[] { "3DO", "Philips CD-i", "Commodore 64" }),
     };
 
     private bool _biosDndWired;
@@ -2242,7 +2242,7 @@ public partial class PreferencesWindow : Window
         ("NEC",      new[] { "TG16", "TGCD" }),
         ("Atari",    new[] { "Atari2600", "Atari7800", "Jaguar" }),
         ("Arcade",   new[] { "Arcade", "NeoGeo", "NeoCD" }),
-        ("Other",    new[] { "NGP", "ColecoVision", "Vectrex", "3DO", "CDi" }),
+        ("Other",    new[] { "NGP", "ColecoVision", "Vectrex", "3DO", "CDi", "C64" }),
     };
 
     private readonly Services.CoreDownloadService _coreDownloader = new();

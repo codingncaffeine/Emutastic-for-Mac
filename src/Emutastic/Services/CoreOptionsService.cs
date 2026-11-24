@@ -59,6 +59,7 @@ namespace Emutastic.Services
                 "bluemsx" => "blueMSX", "vecx" => "Vecx", "opera" => "Opera (3DO)", "same_cdi" => "SAME CDi",
                 "fbneo" => "FBNeo (Final Burn Neo)", "geolith" => "Geolith (Neo Geo)",
                 "mame2003_plus" => "MAME 2003-Plus", "mednafen_psx_hw" => "Mednafen PSX HW (Beetle)",
+                "kernal64" => "Kernal64",
                 _ => name.Length == 0 ? name : char.ToUpper(name[0]) + name[1..].Replace("_", " "),
             };
         }
@@ -101,6 +102,7 @@ namespace Emutastic.Services
             ["nestopia_libretro"]         = "NES",
             ["opera_libretro"]            = "3DO",
             ["parallel_n64_libretro"]     = "N64",
+            ["kernal64_libretro"]         = "C64",
             ["picodrive_libretro"]        = "Sega32X",
             ["ppsspp_libretro"]           = "PSP",
             ["prosystem_libretro"]        = "Atari7800",

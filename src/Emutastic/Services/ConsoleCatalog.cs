@@ -39,7 +39,8 @@ namespace Emutastic.Services
         /// <summary>
         /// Every console the sidebar lists, in shipping order. PS3 is absent on purpose:
         /// it is a Windows-only platform (RPCS3). PS2 is absent on macOS too (no arm64
-        /// pcsx2 core), so this port has 34 entries to upstream's 36.
+        /// pcsx2 core), so this port has 35 entries to upstream's 38
+        /// (no Xbox either: Midway Verdant needs an x86-64 host).
         /// </summary>
         public static readonly IReadOnlyList<ConsoleCatalogEntry> Default = new ConsoleCatalogEntry[]
         {
@@ -86,6 +87,7 @@ namespace Emutastic.Services
             new("CDi",          "Philips CD-i",        "OTHER"),
             new("ColecoVision", "ColecoVision",        "OTHER"),
             new("Vectrex",      "Vectrex",             "OTHER"),
+            new("C64",          "Commodore 64",        "OTHER"),
         };
 
         private static readonly Dictionary<string, ConsoleCatalogEntry> ByTag =
